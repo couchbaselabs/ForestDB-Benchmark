@@ -1815,7 +1815,7 @@ struct bench_info get_benchinfo()
     str = iniparser_getstring(cfg, (char*)"log:filename", (char*)"");
     strcpy(binfo.log_filename, str);
 
-    binfo.cache_size = iniparser_getint(cfg, (char*)"db_config:cache_size_MB", 0);
+    binfo.cache_size = iniparser_getint(cfg, (char*)"db_config:cache_size_MB", 128);
     binfo.cache_size *= (1024*1024);
 
     str = iniparser_getstring(cfg, (char*)"db_config:compaction_mode", (char*)"auto");
@@ -1934,11 +1934,11 @@ struct bench_info get_benchinfo()
         binfo.wbatchsize.type = RND_NORMAL;
         binfo.wbatchsize.a =
             iniparser_getint(cfg,
-                             (char*)"operation:write_batchsize_median", 100);
+                             (char*)"operation:write_batchsize_median", 10);
         binfo.wbatchsize.b =
             iniparser_getint(cfg,
                              (char*)"operation:write_batchsize_standard_deviation",
-                             5);
+                             1);
         avg_write_batchsize = binfo.wbatchsize.a;
     }else{
         binfo.rbatchsize.type = RND_UNIFORM;
@@ -1951,10 +1951,10 @@ struct bench_info get_benchinfo()
         binfo.wbatchsize.type = RND_UNIFORM;
         binfo.wbatchsize.a =
             iniparser_getint(cfg,
-                             (char*)"operation:write_batchsize_lower_bound", 750);
+                             (char*)"operation:write_batchsize_lower_bound", 5);
         binfo.wbatchsize.b =
             iniparser_getint(cfg,
-                             (char*)"operation:write_batchsize_upper_bound", 1250);
+                             (char*)"operation:write_batchsize_upper_bound", 15);
         avg_write_batchsize = (binfo.wbatchsize.a + binfo.wbatchsize.b)/2;
     }
 
