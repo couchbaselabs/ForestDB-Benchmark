@@ -1854,7 +1854,7 @@ struct bench_info get_benchinfo()
 
     binfo.pop_batchsize = iniparser_getint(cfg, (char*)"population:batchsize", 4096);
 
-    str = iniparser_getstring(cfg, (char*)"population:periodic_commit", (char*)"yes");
+    str = iniparser_getstring(cfg, (char*)"population:periodic_commit", (char*)"no");
     if (str[0] == 'n' /*|| binfo.nthreads == 1*/) binfo.pop_commit = 0;
     else binfo.pop_commit = 1;
 
