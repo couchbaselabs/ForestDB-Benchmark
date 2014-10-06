@@ -1043,6 +1043,28 @@ couchstore_error_t couchstore_set_wal_size(size_t size);
 couchstore_error_t couchstore_set_wbs_size(uint64_t size);
 couchstore_error_t couchstore_set_idx_type(int type);
 
+int _does_file_exist(char *filename) {
+    struct stat st;
+    int result = stat(filename, &st);
+    return result == 0;
+}
+
+char *_get_dirname(char *filename, char *dirname_buf)
+{
+    int i;
+    int len = strlen(filename);
+
+    // find first '/' from right
+    for (i=len-1; i>=0; --i){
+        if (filename[i] == '/' && i>0) {
+        	memcpy(dirname_buf, filename, i);
+        	dirname_buf[i] = 0;
+        	return dirname_buf;
+        }
+    }
+    return NULL;
+}
+
 void do_bench(struct bench_info *binfo)
 {
     BDR_RNG_VARS;
@@ -1055,7 +1077,7 @@ void do_bench(struct bench_info *binfo)
     int bench_threads;
     uint64_t written_init, written_final;
     char curfile[256], newfile[256], bodybuf[1024], cmd[256];
-    char fsize1[128], fsize2[128];
+    char fsize1[128], fsize2[128], *str;
     void *compactor_ret;
     void **bench_worker_ret;
     double gap_double;
@@ -1098,6 +1120,15 @@ void do_bench(struct bench_info *binfo)
         lprintf("\ninitialize\n");
         sprintf(cmd, "rm -rf %s* 2> errorlog.txt", binfo->filename);
         ret = system(cmd);
+
+        // create directory if doesn't exist
+        str = _get_dirname(binfo->filename, bodybuf);
+        if (str) {
+            if (!_does_file_exist(str)) {
+                sprintf(cmd, "mkdir -p %s > errorlog.txt", str);
+                ret = system(cmd);
+            }
+        }
 
 #if defined(__WT_BENCH)
         // WiredTiger: open connection
@@ -1994,6 +2025,18 @@ int main(int argc, char **argv){
     binfo = get_benchinfo();
 
     if (strcmp(binfo.log_filename, "")){
+        int ret;
+        char temp[256], cmd[256], *str;
+
+        // create directory if doesn't exist
+        str = _get_dirname(binfo.log_filename, temp);
+        if (str) {
+            if (!_does_file_exist(str)) {
+                sprintf(cmd, "mkdir -p %s > errorlog.txt", str);
+                ret = system(cmd);
+            }
+        }
+
         // open ops log file
         gettimeofday(&gap, NULL);
         sprintf(filename, "%s_%d.txt", binfo.log_filename, (int)gap.tv_sec);
