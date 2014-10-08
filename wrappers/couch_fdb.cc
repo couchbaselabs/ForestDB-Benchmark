@@ -32,6 +32,7 @@ static uint64_t cache_size = 0;
 static int c_auto = 1;
 static size_t c_threshold = 30;
 static size_t wal_size = 4096;
+static size_t c_period = 15;
 couchstore_error_t couchstore_set_flags(uint64_t flags) {
     config_flags = flags;
     return COUCHSTORE_SUCCESS;
@@ -52,6 +53,10 @@ couchstore_error_t couchstore_set_wal_size(size_t size) {
 }
 couchstore_error_t couchstore_close_conn() {
     fdb_shutdown();
+    return COUCHSTORE_SUCCESS;
+}
+couchstore_error_t couchstore_set_chk_period(size_t seconds) {
+    c_period = seconds;
     return COUCHSTORE_SUCCESS;
 }
 
@@ -90,6 +95,7 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
     } else {
         config.compaction_mode = FDB_COMPACTION_MANUAL;
     }
+    config.compactor_sleep_duration = c_period;
     config.chunksize = sizeof(uint64_t);
     config.buffercache_size = (uint64_t)cache_size;
     config.wal_threshold = wal_size;

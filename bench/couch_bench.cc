@@ -91,6 +91,7 @@ struct bench_info {
     // percentage
     size_t write_prob;
     size_t compact_thres;
+    size_t compact_period;
 
     // synchronous write
     uint8_t sync_write;
@@ -1032,16 +1033,18 @@ wait_next:
     }
 }
 
-// non-standard function for extension
+// non-standard functions for extension
 couchstore_error_t couchstore_set_flags(uint64_t flags);
 couchstore_error_t couchstore_set_cache(uint64_t size);
 couchstore_error_t couchstore_set_compaction(int mode,
                                              size_t threshold);
+couchstore_error_t couchstore_set_chk_period(size_t seconds);
 couchstore_error_t couchstore_open_conn(const char *filename);
 couchstore_error_t couchstore_close_conn();
 couchstore_error_t couchstore_set_wal_size(size_t size);
 couchstore_error_t couchstore_set_wbs_size(uint64_t size);
 couchstore_error_t couchstore_set_idx_type(int type);
+couchstore_error_t couchstore_set_sync(Db *db, int sync);
 
 int _does_file_exist(char *filename) {
     struct stat st;
@@ -1739,13 +1742,17 @@ void _print_benchinfo(struct bench_info *binfo)
     }
     lprintf(" (%s)\n", ((binfo->sync_write)?("synchronous"):("asynchronous")));
 
-#if defined(__FDB_BENCH) || defined(__COUCH_BENCH)
-    lprintf("compaction threshold: %d %%", (int)binfo->compact_thres);
 #if defined(__FDB_BENCH)
-    lprintf(" (%s)\n", ((binfo->auto_compaction)?("auto"):("manual")));
-#else
-    lprintf("\n");
+    lprintf("compaction threshold: %d %% "
+            "(period: %d seconds, %s)\n",
+            (int)binfo->compact_thres, binfo->compact_period,
+            ((binfo->auto_compaction)?("auto"):("manual")));
 #endif
+#if defined(__COUCH_BENCH)
+    lprintf("compaction threshold: %d %%\n", (int)binfo->compact_thres);
+#endif
+#if defined(__WT_BENCH)
+    lprintf("checkpoint period: %d seconds\n", binfo->compact_period);
 #endif
 }
 
@@ -2008,6 +2015,7 @@ struct bench_info get_benchinfo()
     binfo.sync_write = (str[0]=='s')?(1):(0);
 
     binfo.compact_thres = iniparser_getint(cfg, (char*)"compaction:threshold", 30);
+    binfo.compact_period = iniparser_getint(cfg, (char*)"compaction:period", 15);
 
     iniparser_free(cfg);
 
