@@ -6,7 +6,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
-#include "wiredtiger/wiredtiger.h"
+#include "wiredtiger.h"
 #include "couch_db.h"
 
 #define METABUF_MAXLEN (256)
@@ -38,9 +38,9 @@ couchstore_error_t couchstore_open_conn(const char *filename)
     char config[256];
 
 #ifdef PRIu64
-    sprintf(config, "create,cache_size=%"PRIu64, cache_size);
+    sprintf(config, "create,log=(enabled),cache_size=%"PRIu64, cache_size);
 #else
-    sprintf(config, "create,cache_size=%llu", cache_size);
+    sprintf(config, "create,log=(enabled),cache_size=%llu", cache_size);
 #endif
     // create directory if not exist
     fd = open(filename, O_RDONLY, 0666);
@@ -106,15 +106,17 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
     }
 
     sprintf(table_name, "table:%s", fileonly);
-    sprintf(table_config, " ");
     if (indexing_type == 1) {
         // lsm-tree
         sprintf(table_config,
-                "split_pct=100,leaf_item_max=1KB,"
+                "type=lsm,split_pct=100,leaf_item_max=1KB,"
                 "internal_page_max=4KB,leaf_page_max=4KB,"
                 "lsm=(chunk_size=4MB,"
                      "bloom_config=(leaf_page_max=4MB))");
-    }
+    } else
+        sprintf(table_config,
+                "split_pct=100,leaf_item_max=1KB,"
+                "internal_page_max=4KB,leaf_page_max=4KB");
 
     conn->open_session(conn, NULL, NULL, &ppdb->session);
     ppdb->session->create(ppdb->session, table_name, table_config);
@@ -197,6 +199,8 @@ couchstore_error_t couchstore_save_documents(Db *db, Doc* const docs[], DocInfo 
     char *err = NULL;
     WT_ITEM item;
 
+    ret = db->session->begin_transaction( db->session, NULL );
+    assert(ret == 0);
 
     for (i=0;i<numdocs;++i){
         item.data = docs[i]->id.buf;
@@ -221,6 +225,9 @@ couchstore_error_t couchstore_save_documents(Db *db, Doc* const docs[], DocInfo 
         infos[i]->db_seq = 0;
         free(buf);
     }
+
+    ret = db->session->commit_transaction( db->session, db->sync ? "sync" : NULL );
+    assert(ret == 0);
 
     return COUCHSTORE_SUCCESS;
 }
@@ -315,10 +322,6 @@ void couchstore_free_docinfo(DocInfo *docinfo)
 LIBCOUCHSTORE_API
 couchstore_error_t couchstore_commit(Db *db)
 {
-    if (db->sync) {
-        // create checkpoint
-        db->session->checkpoint(db->session, NULL);
-    }
     return COUCHSTORE_SUCCESS;
 }
 
