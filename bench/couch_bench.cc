@@ -124,9 +124,9 @@ int _cmp_docs(const void *a, const void *b)
 static uint8_t metabuf[256];
 
 #define PRINT_TIME(t,str) \
-    printf("%d.%01d"str, (int)(t).tv_sec, (int)(t).tv_usec / 100000);
+    printf("%d.%01d" str, (int)(t).tv_sec, (int)(t).tv_usec / 100000);
 #define LOG_PRINT_TIME(t,str) \
-    lprintf("%d.%01d"str, (int)(t).tv_sec, (int)(t).tv_usec / 100000);
+    lprintf("%d.%01d" str, (int)(t).tv_sec, (int)(t).tv_usec / 100000);
 
 uint64_t get_filesize(char *filename)
 {
@@ -323,7 +323,7 @@ void * pop_print_time(void *voidargs)
                 remain_sec = remain_sec / 1000;
             }
             printf("\r[%d.%d s] ", (int)tv.tv_sec, (int)(tv.tv_usec/100000));
-            printf("%"_F64" / %"_F64, counter, (uint64_t)binfo->ndocs);
+            printf("%" _F64 " / %" _F64, counter, (uint64_t)binfo->ndocs);
             printf(" (%d %%)", (int)(counter * 100 / binfo->ndocs));
             printf(" (-%d s)", (int)remain_sec);
             spin_unlock(args->lock);
@@ -377,7 +377,7 @@ void population(Db **db, struct bench_info *binfo)
 
     tv = stopwatch_stop(&sw_long);
     printf("\r[%d.%d s] ", (int)tv.tv_sec, (int)(tv.tv_usec/100000));
-    printf("%"_F64" / %"_F64, counter, (uint64_t)binfo->ndocs);
+    printf("%" _F64 " / %" _F64, counter, (uint64_t)binfo->ndocs);
     printf(" (%d %%)", 100);
     printf(" (-%d s)\n", 0);
     fflush(stdout);
@@ -970,7 +970,7 @@ void * bench_thread(void *voidargs)
                 err = couchstore_open_document(db[curfile_no], rq_id.buf,
                                                rq_id.size, &rq_doc, 0x0);
                 if (err != COUCHSTORE_SUCCESS) {
-                    printf("read error: document number %"_F64"\n", r);
+                    printf("read error: document number %" _F64 "\n", r);
                 }
 
                 rq_doc->id.buf = NULL;
@@ -1560,7 +1560,7 @@ next_loop:
         uint64_t avg_docsize;
 
         if (op_count_write) {
-            lprintf("total %"_F64" bytes (%s) written during benchmark\n", written,
+            lprintf("total %" _F64 " bytes (%s) written during benchmark\n", written,
                     print_filesize_approx((written_final - written_init), bodybuf));
             if (binfo->bodylen.type == RND_NORMAL) {
                 avg_docsize = binfo->bodylen.a;
@@ -1689,7 +1689,7 @@ void _print_benchinfo(struct bench_info *binfo)
         print_filesize_approx(binfo->wbs_bench, tempstr));
 #endif
 #if defined(__FDB_BENCH)
-    lprintf("WAL size: %"_F64"\n", binfo->fdb_wal);
+    lprintf("WAL size: %" _F64"\n", binfo->fdb_wal);
 #endif
 #if defined(__WT_BENCH)
     lprintf("indexing: %s\n", (binfo->wt_type==0)?"b-tree":"lsm-tree");
