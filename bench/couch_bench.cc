@@ -1745,14 +1745,14 @@ void _print_benchinfo(struct bench_info *binfo)
 #if defined(__FDB_BENCH)
     lprintf("compaction threshold: %d %% "
             "(period: %d seconds, %s)\n",
-            (int)binfo->compact_thres, binfo->compact_period,
+            (int)binfo->compact_thres, (int)binfo->compact_period,
             ((binfo->auto_compaction)?("auto"):("manual")));
 #endif
 #if defined(__COUCH_BENCH)
     lprintf("compaction threshold: %d %%\n", (int)binfo->compact_thres);
 #endif
 #if defined(__WT_BENCH)
-    lprintf("checkpoint period: %d seconds\n", binfo->compact_period);
+    lprintf("checkpoint period: %d seconds\n", (int)binfo->compact_period);
 #endif
 }
 
