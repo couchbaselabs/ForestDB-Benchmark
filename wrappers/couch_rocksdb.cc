@@ -5,17 +5,19 @@
 #include <assert.h>
 #include <sys/stat.h>
 
-#include "rocksdb/c.h"
+#include "rocksdb/cache.h"
+#include "rocksdb/db.h"
+#include "rocksdb/table.h"
 #include "couch_db.h"
 
 #define METABUF_MAXLEN (256)
 
 struct _db {
-    rocksdb_t *db;
-    rocksdb_options_t *options;
-    rocksdb_readoptions_t *read_options;
-    rocksdb_writeoptions_t *write_options;
-    char *filename;
+    rocksdb::DB* db;
+    rocksdb::Options *options;
+    rocksdb::WriteOptions *write_options;
+    rocksdb::ReadOptions *read_options;
+    std::string *filename;
 };
 
 static uint64_t cache_size = 0;
@@ -51,56 +53,58 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
     *pDb = (Db*)malloc(sizeof(Db));
     ppdb = *pDb;
 
-    ppdb->filename = (char*)malloc(strlen(filename)+1);
-    strcpy(ppdb->filename, filename);
+    ppdb->filename = new std::string(filename);
 
-    ppdb->options = rocksdb_options_create();
-    rocksdb_options_set_create_if_missing(ppdb->options, 1);
-    rocksdb_options_set_compression(ppdb->options, 0);
+    ppdb->options = new rocksdb::Options();
+    ppdb->options->create_if_missing = true;
+    ppdb->options->compression = rocksdb::kNoCompression;
 
-    rocksdb_options_set_max_background_compactions(ppdb->options, 8);
-    rocksdb_options_set_max_background_flushes(ppdb->options, 8);
-    rocksdb_options_set_max_write_buffer_number(ppdb->options, 8);
-    //rocksdb_options_set_min_write_buffer_number_to_merge(ppdb->options, 8);
-    rocksdb_options_set_write_buffer_size(ppdb->options, wbs_size);
+    ppdb->options->max_background_compactions = 8;
+    ppdb->options->max_background_flushes = 8;
+    ppdb->options->max_write_buffer_number = 8;
+    ppdb->options->write_buffer_size = wbs_size;
 
     if (cache_size) {
-        rocksdb_options_set_cache(ppdb->options,
-                                  rocksdb_cache_create_lru((uint64_t)cache_size));
+        rocksdb::BlockBasedTableOptions table_options;
+        table_options.block_cache = rocksdb::NewLRUCache(cache_size);
+        ppdb->options->table_factory.reset(
+            rocksdb::NewBlockBasedTableFactory(table_options));
     }
+    ppdb->options->max_open_files = 1000;
 
-    rocksdb_options_set_max_open_files(ppdb->options, 1000);
-    ppdb->db = rocksdb_open(ppdb->options, ppdb->filename, &err);
+    rocksdb::Status status = rocksdb::DB::Open(
+        *ppdb->options, *ppdb->filename, &ppdb->db);
 
-    ppdb->read_options = rocksdb_readoptions_create();
-    ppdb->write_options = rocksdb_writeoptions_create();
-    rocksdb_writeoptions_set_sync(ppdb->write_options, 1);
-    //rocksdb_writeoptions_set_sync(ppdb->write_options, 0);
+    ppdb->read_options = new rocksdb::ReadOptions();
+    ppdb->write_options = new rocksdb::WriteOptions();
+    ppdb->write_options->sync = true;
 
     return COUCHSTORE_SUCCESS;
 }
 
 couchstore_error_t couchstore_set_sync(Db *db, int sync)
 {
-    rocksdb_writeoptions_set_sync(db->write_options, sync);
+    db->write_options->sync = sync ? true : false;
     return COUCHSTORE_SUCCESS;
 }
 
 couchstore_error_t couchstore_disable_auto_compaction(Db *db, int cpt)
 {
-    char *err = NULL;
-    rocksdb_options_set_disable_auto_compactions(db->options, cpt);
-    rocksdb_close(db->db);
-    db->db = rocksdb_open(db->options, db->filename, &err);
-    if (err) free(err);
+    rocksdb::Status status;
+    db->options->disable_auto_compactions = cpt;
+    delete db->db;
+    status = rocksdb::DB::Open(*db->options, *db->filename, &db->db);
     return COUCHSTORE_SUCCESS;
 }
 
 LIBCOUCHSTORE_API
 couchstore_error_t couchstore_close_db(Db *db)
 {
-    rocksdb_close(db->db);
-    free(db->filename);
+    delete db->db;
+    delete db->options;
+    delete db->write_options;
+    delete db->read_options;
+    delete db->filename;
     free(db);
 
     return COUCHSTORE_SUCCESS;
@@ -111,13 +115,13 @@ couchstore_error_t couchstore_db_info(Db *db, DbInfo* info)
 {
     struct stat filestat;
 
-    info->filename = db->filename;
+    info->filename = db->filename->c_str();
     info->doc_count = 0;
     info->deleted_count = 0;
     info->header_position = 0;
     info->last_sequence = 0;
 
-    stat(db->filename, &filestat);
+    stat(db->filename->c_str(), &filestat);
     info->space_used = filestat.st_size;
 
     return COUCHSTORE_SUCCESS;
@@ -158,10 +162,8 @@ couchstore_error_t couchstore_save_documents(Db *db, Doc* const docs[], DocInfo 
     uint16_t metalen;
     uint8_t metabuf[METABUF_MAXLEN];
     uint8_t *buf;
-        char *err = NULL;
-    rocksdb_writebatch_t *wb;
-
-    wb = rocksdb_writebatch_create();
+    rocksdb::Status status;
+    rocksdb::WriteBatch wb;
 
     for (i=0;i<numdocs;++i){
         metalen = _docinfo_to_buf(infos[i], metabuf);
@@ -170,18 +172,18 @@ couchstore_error_t couchstore_save_documents(Db *db, Doc* const docs[], DocInfo 
         memcpy(buf, &metalen, sizeof(metalen));
         memcpy(buf + sizeof(metalen) + metalen, docs[i]->data.buf, docs[i]->data.size);
 
-        rocksdb_writebatch_put(wb, docs[i]->id.buf, docs[i]->id.size, (char*)buf,
-                               sizeof(metalen) + metalen + docs[i]->data.size);
+        wb.Put(rocksdb::Slice(docs[i]->id.buf, docs[i]->id.size),
+               rocksdb::Slice((char*)buf,
+                              sizeof(metalen) + metalen + docs[i]->data.size));
 
         infos[i]->db_seq = 0;
         free(buf);
     }
-    rocksdb_write(db->db, db->write_options, wb, &err);
-    if (err) {
-        printf("ERR %s\n", err);
+    status = db->db->Write(*db->write_options, &wb);
+    if (!status.ok()) {
+        printf("ERR %s\n", status.ToString().c_str());
     }
-    assert(err == NULL);
-    rocksdb_writebatch_destroy(wb);
+    assert(status.ok());
 
     return COUCHSTORE_SUCCESS;
 }
@@ -224,14 +226,14 @@ void _buf_to_docinfo(void *buf, size_t size, DocInfo *docinfo)
 LIBCOUCHSTORE_API
 couchstore_error_t couchstore_docinfo_by_id(Db *db, const void *id, size_t idlen, DocInfo **pInfo)
 {
-    char *err;
-    void *value;
+    rocksdb::Status status;
+    std::string *value;
     size_t valuelen;
     size_t rev_meta_size;
     size_t meta_offset;
 
-    value = rocksdb_get(db->db, db->read_options, (char*)id, idlen, &valuelen, &err);
-
+    status = db->db->Get(*db->read_options, rocksdb::Slice((char*)id, idlen),
+                         value);
     meta_offset = sizeof(uint64_t)*1 + sizeof(int) +
                   sizeof(couchstore_content_meta_flags);
     memcpy(&rev_meta_size, (uint8_t*)value + sizeof(uint16_t) + meta_offset,
@@ -256,8 +258,8 @@ couchstore_error_t couchstore_docinfos_by_id(Db *db, const sized_buf ids[], unsi
 {
     int i;
     DocInfo *docinfo;
-    char *err;
-    void *value;
+    rocksdb::Status status;
+    std::string *value;
     size_t valuelen;
     size_t rev_meta_size, max_meta_size = 256;
     size_t meta_offset;
@@ -266,7 +268,8 @@ couchstore_error_t couchstore_docinfos_by_id(Db *db, const sized_buf ids[], unsi
     docinfo = (DocInfo*)malloc(sizeof(DocInfo) + max_meta_size);
 
     for (i=0;i<numDocs;++i){
-        value = rocksdb_get(db->db, db->read_options, ids[i].buf, ids[i].size, &valuelen, &err);
+        status = db->db->Get(*db->read_options,
+                             rocksdb::Slice(ids[i].buf, ids[i].size), value);
 
         memcpy(&rev_meta_size, (uint8_t*)value + sizeof(uint16_t) + meta_offset,
                sizeof(size_t));
@@ -312,17 +315,25 @@ couchstore_error_t couchstore_open_document(Db *db,
                                             Doc **pDoc,
                                             couchstore_open_options options)
 {
-    char *err = NULL;
-    void *value;
+    rocksdb::Status status;
+    std::string tmp;
+    char* value;
     size_t valuelen;
     size_t rev_meta_size;
     size_t meta_offset;
 
-    value = rocksdb_get(db->db, db->read_options, (char*)id, idlen, &valuelen, &err);
-    if (err) {
-        printf("ERR %s\n", err);
+    status = db->db->Get(*db->read_options, rocksdb::Slice((char*)id, idlen),
+                         &tmp);
+    if (status.ok()) {
+        valuelen = tmp.size();
+        value = strdup(tmp.c_str());
+    } else {
+        valuelen = 0;
+        if (!status.IsNotFound()) {
+            printf("ERR %s\n", status.ToString().c_str());
+        }
     }
-    assert(err == NULL);
+    assert(status.ok());
 
     meta_offset = sizeof(uint64_t)*1 + sizeof(int) +
                   sizeof(couchstore_content_meta_flags);
