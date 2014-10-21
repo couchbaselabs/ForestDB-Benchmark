@@ -50,7 +50,7 @@ couchstore_error_t couchstore_open_conn(const char *filename)
     sprintf(config, "create,"
                     "log=(enabled),"
                     "checkpoint=(wait=%d),"
-                    "cache_size=%"_F64,
+                    "cache_size=%" _F64,
                     c_period, cache_size);
     // create directory if not exist
     fd = open(filename, O_RDONLY, 0666);
