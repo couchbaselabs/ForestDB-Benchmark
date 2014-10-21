@@ -21,6 +21,7 @@ if (NOT WIN32)
     set(LIBBZ2 bz2)
     set(LIBFDB forestdb)
     set(LIBLDB leveldb)
+    set(LIBRDB rocksdb)
     set(LIBCOUCH couchstore)
     set(LIBWT wiredtiger)
 endif(NOT WIN32)
@@ -98,7 +99,6 @@ add_executable(rocksdb_bench
                utils/zipfian_random.cc
                utils/keygen.cc)
 target_link_libraries(rocksdb_bench 
-                      ${CMAKE_LIBRARY_PATH}/librocksdb.a 
-                      ${PTHREAD_LIB} ${LIBM} ${LIBSNAPPY} ${LIBRT} ${LIBZ} ${LIBBZ2})
+                      ${PTHREAD_LIB} ${LIBM} ${LIBSNAPPY} ${LIBRT} ${LIBZ} ${LIBBZ2} ${LIBRDB})
 set_target_properties(rocksdb_bench PROPERTIES COMPILE_FLAGS "-D__ROCKS_BENCH")
 file(COPY ${CMAKE_SOURCE_DIR}/bench_config.ini DESTINATION ./)
