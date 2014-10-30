@@ -57,7 +57,7 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
 
     ppdb->options = new rocksdb::Options();
     ppdb->options->create_if_missing = true;
-    ppdb->options->compression = rocksdb::kNoCompression;
+    ppdb->options->compression = rocksdb::kSnappyCompression;
 
     ppdb->options->max_background_compactions = 8;
     ppdb->options->max_background_flushes = 8;
