@@ -23,7 +23,8 @@
 #define MAX_KEYLEN (4096)
 
 struct _db {
-    fdb_handle *fdb;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *fdb;
     char *filename;
 };
 
@@ -76,6 +77,22 @@ couchstore_error_t couchstore_open_db(const char *filename,
                                  NULL, pDb);
 }
 
+// lexicographically compares two variable-length binary streams
+#define MIN(a,b) (((a)<(b))?(a):(b))
+static int _bench_keycmp(void *key1, size_t keylen1, void *key2, size_t keylen2)
+{
+    if (keylen1 == keylen2) {
+        return memcmp(key1, key2, keylen1);
+    }else {
+        size_t len = MIN(keylen1, keylen2);
+        int cmp = memcmp(key1, key2, len);
+        if (cmp != 0) return cmp;
+        else {
+            return (int)((int)keylen1 - (int)keylen2);
+        }
+    }
+}
+
 LIBCOUCHSTORE_API
 couchstore_error_t couchstore_open_db_ex(const char *filename,
                                          couchstore_open_flags flags,
@@ -83,8 +100,10 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
                                          Db **pDb)
 {
     fdb_config config;
+    fdb_kvs_config kvs_config;
     fdb_status status;
-    fdb_handle *fdb;
+    fdb_file_handle *dbfile;
+    fdb_kvs_handle *fdb;
     char *fname = (char *)filename;
 
     memset(&config, 0, sizeof(fdb_config));
@@ -108,14 +127,20 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
     config.compress_document_body = false;
     if (config_flags & 0x1) {
         config.wal_flush_before_commit = true;
+    } else {
+        config.wal_flush_before_commit = false;
     }
 
+    kvs_config = fdb_get_default_kvs_config();
+
     *pDb = (Db*)malloc(sizeof(Db));
-    //(*pDb)->seqnum = 0;
     (*pDb)->filename = (char *)malloc(strlen(filename)+1);
     strcpy((*pDb)->filename, filename);
 
-    status = fdb_open(&fdb, fname, &config);
+    status = fdb_open(&dbfile, fname, &config);
+    status = fdb_kvs_open_default(dbfile, &fdb, &kvs_config);
+
+    (*pDb)->dbfile = dbfile;
     (*pDb)->fdb = fdb;
 
     status = fdb_set_log_callback(fdb, logCallbackFunc, (void*)"worker");
@@ -132,7 +157,7 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
 LIBCOUCHSTORE_API
 couchstore_error_t couchstore_close_db(Db *db)
 {
-    fdb_close(db->fdb);
+    fdb_close(db->dbfile);
     free(db->filename);
     free(db);
 
@@ -145,12 +170,12 @@ couchstore_error_t couchstore_db_info(Db *db, DbInfo* info)
     char **file, **new_file;
     size_t offset;
 
-    info->space_used = fdb_estimate_space_used(db->fdb);
+    info->space_used = fdb_estimate_space_used(db->dbfile);
 
     // hack the DB handle to get internal filename
-    offset = sizeof(void*)*3;
-    file = *(char***)((uint8_t*)db->fdb + offset);
     offset = sizeof(void*)*4;
+    file = *(char***)((uint8_t*)db->fdb + offset);
+    offset = sizeof(void*)*5;
     new_file = *(char***)((uint8_t*)db->fdb + offset);
 
     if (new_file) {
@@ -196,6 +221,7 @@ couchstore_error_t couchstore_save_documents(Db *db, Doc* const docs[], DocInfo 
     fdb_status status;
     uint8_t buf[META_BUF_MAXLEN];
 
+    memset(&_doc, 0, sizeof(_doc));
     for (i=0;i<numdocs;++i){
         _doc.key = docs[i]->id.buf;
         _doc.keylen = docs[i]->id.size;
@@ -395,6 +421,7 @@ couchstore_error_t couchstore_open_document(Db *db,
 
     meta_offset = sizeof(uint64_t)*1 + sizeof(int) + sizeof(couchstore_content_meta_flags);
 
+    memset(&_doc, 0, sizeof(_doc));
     _doc.key = (void *)id;
     _doc.keylen = idlen;
     _doc.seqnum = SEQNUM_NOT_USED;
@@ -437,7 +464,7 @@ void couchstore_free_docinfo(DocInfo *docinfo)
 LIBCOUCHSTORE_API
 couchstore_error_t couchstore_commit(Db *db)
 {
-    fdb_commit(db->fdb, FDB_COMMIT_NORMAL);
+    fdb_commit(db->dbfile, FDB_COMMIT_NORMAL);
     return COUCHSTORE_SUCCESS;
 }
 
@@ -447,7 +474,7 @@ couchstore_error_t couchstore_compact_db_ex(Db* source, const char* target_filen
 {
     char *new_filename = (char *)target_filename;
     fdb_set_log_callback(source->fdb, logCallbackFunc, (void*)"compactor");
-    fdb_compact(source->fdb, new_filename);
+    fdb_compact(source->dbfile, new_filename);
 
     return COUCHSTORE_SUCCESS;
 }
