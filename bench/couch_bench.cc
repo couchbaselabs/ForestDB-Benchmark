@@ -1133,6 +1133,10 @@ void do_bench(struct bench_info *binfo)
             }
         }
 
+#if defined(__WT_BENCH) || defined(__FDB_BENCH)
+        // WiredTiger & ForestDB: set compaction period
+        couchstore_set_chk_period(binfo->compact_period);
+#endif
 #if defined(__WT_BENCH)
         // WiredTiger: open connection
         couchstore_set_idx_type(binfo->wt_type);
