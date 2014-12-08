@@ -130,6 +130,7 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
     } else {
         config.wal_flush_before_commit = false;
     }
+    config.prefetch_duration = 30;
 
     kvs_config = fdb_get_default_kvs_config();
 
@@ -330,7 +331,7 @@ couchstore_error_t couchstore_docinfos_by_id(Db *db, const sized_buf ids[], unsi
         _doc.meta = _doc.body = NULL;
 
         status = fdb_get_metaonly(db->fdb, &_doc);
-        assert(status != FDB_RESULT_FAIL);
+        assert(status == FDB_RESULT_SUCCESS);
 
         memcpy(&rev_meta_size, (uint8_t*)_doc.meta + meta_offset, sizeof(size_t));
         if (rev_meta_size > max_meta_size) {
@@ -381,7 +382,7 @@ couchstore_error_t couchstore_docinfos_by_sequence(Db *db,
         _doc.meta = _doc.body = NULL;
 
         status = fdb_get_metaonly_byseq(db->fdb, &_doc);
-        assert(status != FDB_RESULT_FAIL);
+        assert(status == FDB_RESULT_SUCCESS);
 
         memcpy(&rev_meta_size, (uint8_t*)_doc.meta + meta_offset, sizeof(size_t));
         if (rev_meta_size > max_meta_size) {
