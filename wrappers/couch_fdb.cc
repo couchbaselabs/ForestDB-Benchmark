@@ -416,7 +416,6 @@ couchstore_error_t couchstore_open_document(Db *db,
 {
     fdb_doc _doc;
     fdb_status status;
-    size_t rev_meta_size;
     size_t meta_offset;
     couchstore_error_t ret = COUCHSTORE_SUCCESS;
 

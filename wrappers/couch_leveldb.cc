@@ -301,7 +301,6 @@ couchstore_error_t couchstore_open_document(Db *db,
     char *err = NULL;
     void *value;
     size_t valuelen;
-    size_t rev_meta_size;
     size_t meta_offset;
 
     value = leveldb_get(db->db, db->read_options, (char*)id, idlen, &valuelen, &err);

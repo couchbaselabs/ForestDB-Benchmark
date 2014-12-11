@@ -93,7 +93,6 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
     char fileonly[256];
     char table_name[256];
     char table_config[256];
-    char *err;
 
     assert(conn);
 
@@ -202,7 +201,6 @@ couchstore_error_t couchstore_save_documents(Db *db, Doc* const docs[], DocInfo 
     uint16_t metalen;
     uint8_t metabuf[METABUF_MAXLEN];
     uint8_t *buf;
-    char *err = NULL;
     WT_ITEM item;
 
     ret = db->session->begin_transaction(db->session, (db->sync)?"sync":NULL);
@@ -281,10 +279,6 @@ couchstore_error_t couchstore_open_document(Db *db,
                                             couchstore_open_options options)
 {
     int ret;
-    char *err = NULL;
-    void *value;
-    size_t valuelen;
-    size_t rev_meta_size;
     size_t meta_offset;
     WT_ITEM item;
 

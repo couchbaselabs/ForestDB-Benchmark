@@ -592,7 +592,6 @@ void * compactor(void *voidargs)
     Db *db;
     char *curfile = args->curfile;
     char *newfile = args->newfile;
-    uint64_t ndocs_prev;
 
     couchstore_open_db(curfile,
                        COUCHSTORE_OPEN_FLAG_CREATE |
@@ -701,19 +700,20 @@ void * bench_thread(void *voidargs)
     int batchsize;
     int write_mode, write_mode_r;
     int commit_mask[args->binfo->nfiles];
-    int curfile_no, file_doccount[args->binfo->nfiles], c;
-    double prob, ratio;
+    int curfile_no;
+    double prob;
     char curfile[256], keybuf[MAX_KEYLEN];
     uint64_t r, crc, op_med;
     uint64_t op_w, op_r, op_w_cum, op_r_cum, op_w_turn, op_r_turn;
     uint64_t expected_us, elapsed_us, elapsed_sec;
     Db **db;
-    Doc *rq_doc, **rq_doc_arr[args->binfo->nfiles];
-    DocInfo *rq_info, **rq_info_arr[args->binfo->nfiles];
+    Doc *rq_doc;
     sized_buf rq_id;
     struct rndinfo write_mode_random, op_dist;
     struct bench_info *binfo = args->binfo;
+#ifdef __BENCH_RESULT
     struct bench_result *result = args->result;
+#endif
     struct zipf_rnd *zipf = args->zipf;
     struct stopwatch sw;
     struct timeval gap;
@@ -868,6 +868,7 @@ void * bench_thread(void *voidargs)
             // write (update)
 #if defined(__FDB_BENCH) || defined(__WT_BENCH)
             // initialize
+            DocInfo *rq_info;
             memset(commit_mask, 0, sizeof(int) * binfo->nfiles);
 
             for (j=0;j<batchsize;++j){
@@ -900,6 +901,10 @@ void * bench_thread(void *voidargs)
                 }
             }
 #else
+            int file_doccount[args->binfo->nfiles], c;
+            Doc **rq_doc_arr[args->binfo->nfiles];
+            DocInfo **rq_info_arr[args->binfo->nfiles];
+
             for (i=0; i<binfo->nfiles;++i){
                 rq_doc_arr[i] = (Doc **)malloc(sizeof(Doc*) * batchsize);
                 rq_info_arr[i] = (DocInfo **)malloc(sizeof(DocInfo*) * batchsize);
@@ -1071,7 +1076,7 @@ char *_get_dirname(char *filename, char *dirname_buf)
 void do_bench(struct bench_info *binfo)
 {
     BDR_RNG_VARS;
-    int i, j, ret;
+    int i, j, ret; (void)j;
     int curfile_no, compaction_turn;
     int op_count_read, op_count_write;
     int prev_op_count_read, prev_op_count_write;
@@ -1084,7 +1089,10 @@ void do_bench(struct bench_info *binfo)
     void *compactor_ret;
     void **bench_worker_ret;
     double gap_double;
-    Db *db[binfo->nfiles], *info_handle[binfo->nfiles];
+    Db *db[binfo->nfiles];
+#ifdef __FDB_BENCH
+    Db *info_handle[binfo->nfiles];
+#endif
     DbInfo *dbinfo;
     thread_t tid_compactor;
     thread_t *bench_worker;
@@ -1093,7 +1101,6 @@ void do_bench(struct bench_info *binfo)
     struct timeval gap, _gap;
     struct zipf_rnd zipf;
     struct bench_result result;
-    struct compactor_args c_args;
     struct bench_shared_stat b_stat;
     struct bench_thread_args *b_args;
 
@@ -1330,7 +1337,6 @@ void do_bench(struct bench_info *binfo)
             uint64_t cur_size;
             int cpt_no;
             Db *temp_db;
-            couchstore_error_t err;
 
             // reset stopwatch for the next period
             stopwatch_init(&progress);
@@ -1452,6 +1458,7 @@ void do_bench(struct bench_info *binfo)
 #ifdef __COUCH_BENCH
                     int signal_count = 0;
                     int bench_nrs = 0;
+                    struct compactor_args c_args;
 
                     for (j=0; j<bench_threads; ++j) {
                         if (b_args[j].mode != 2) {
@@ -1482,6 +1489,7 @@ void do_bench(struct bench_info *binfo)
                     thread_create(&tid_compactor, compactor, &c_args);
 #endif
 #ifdef __FDB_BENCH
+                    struct compactor_args c_args;
                     c_args.binfo = binfo;
                     c_args.curfile = curfile;
                     c_args.newfile = newfile;

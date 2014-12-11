@@ -48,7 +48,6 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
                                          Db **pDb)
 {
     Db *ppdb;
-    char *err;
 
     *pDb = (Db*)malloc(sizeof(Db));
     ppdb = *pDb;
@@ -319,7 +318,6 @@ couchstore_error_t couchstore_open_document(Db *db,
     std::string tmp;
     char* value;
     size_t valuelen;
-    size_t rev_meta_size;
     size_t meta_offset;
 
     status = db->db->Get(*db->read_options, rocksdb::Slice((char*)id, idlen),

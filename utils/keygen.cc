@@ -16,8 +16,6 @@ void keygen_init(
     struct rndinfo *prefix_dist,
     struct keygen_option *opt)
 {
-    int i;
-
     keygen->nprefix = nprefix;
     keygen->prefix_len = (struct rndinfo *)malloc(sizeof(struct rndinfo) * nprefix);
     keygen->prefix_dist = (struct rndinfo *)malloc(sizeof(struct rndinfo) * nprefix);
@@ -38,7 +36,7 @@ void _crc2key(struct keygen *keygen, uint64_t crc, char *buf, size_t len, uint8_
 {
     int i;
     BDR_RNG_VARS_SET(crc);
-    BDR_RNG_NEXT;
+    BDR_RNG_NEXTPAIR;
     BDR_RNG_NEXT;
     BDR_RNG_NEXT;
 
@@ -120,9 +118,8 @@ uint64_t MurmurHash64A ( const void * key, int len, unsigned int seed )
 
 size_t keygen_seed2key(struct keygen *keygen, uint64_t seed, char *buf)
 {
-    uint64_t i, j;
+    uint64_t i;
     size_t len, cursor;
-    uint32_t rndvalue;
     uint64_t seed_local, seed64, rnd_sel;
 
     seed64 = MurmurHash64A(&seed, sizeof(uint64_t), 0);
