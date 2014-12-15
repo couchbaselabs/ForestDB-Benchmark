@@ -1103,6 +1103,9 @@ void do_bench(struct bench_info *binfo)
     struct bench_result result;
     struct bench_shared_stat b_stat;
     struct bench_thread_args *b_args;
+#if defined(__FDB_BENCH) || defined(__COUCH_BENCH)
+    struct compactor_args c_args;
+#endif
 
     memleak_start();
 
@@ -1458,7 +1461,6 @@ void do_bench(struct bench_info *binfo)
 #ifdef __COUCH_BENCH
                     int signal_count = 0;
                     int bench_nrs = 0;
-                    struct compactor_args c_args;
 
                     for (j=0; j<bench_threads; ++j) {
                         if (b_args[j].mode != 2) {
@@ -1489,7 +1491,6 @@ void do_bench(struct bench_info *binfo)
                     thread_create(&tid_compactor, compactor, &c_args);
 #endif
 #ifdef __FDB_BENCH
-                    struct compactor_args c_args;
                     c_args.binfo = binfo;
                     c_args.curfile = curfile;
                     c_args.newfile = newfile;
