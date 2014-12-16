@@ -38,11 +38,9 @@ void _crc2key(struct keygen *keygen, uint64_t crc, char *buf, size_t len, uint8_
     BDR_RNG_VARS_SET(crc);
     BDR_RNG_NEXTPAIR;
     BDR_RNG_NEXT;
-    BDR_RNG_NEXT;
 
     for (i=0;i<len;i+=1){
-        BDR_RNG_NEXT;
-        BDR_RNG_NEXT;
+        BDR_RNG_NEXTPAIR;
         if (abt_only) {
             buf[i] = abt_array[(rngz%(keygen->abt_array_size))];
             //buf[i] = 'a' + (rngz%('z'-'a'));
@@ -57,8 +55,7 @@ size_t _crc2keylen(struct rndinfo *prefix_len, uint64_t crc)
     size_t r;
     BDR_RNG_VARS_SET(crc);
     BDR_RNG_NEXTPAIR;
-    BDR_RNG_NEXTPAIR;
-    BDR_RNG_NEXTPAIR;
+    BDR_RNG_NEXT;
 
     r = get_random(prefix_len, rngz, rngz2);
     return r;
@@ -125,8 +122,7 @@ size_t keygen_seed2key(struct keygen *keygen, uint64_t seed, char *buf)
     seed64 = MurmurHash64A(&seed, sizeof(uint64_t), 0);
     BDR_RNG_VARS_SET(seed64);
     BDR_RNG_NEXTPAIR;
-    BDR_RNG_NEXTPAIR;
-    BDR_RNG_NEXTPAIR;
+    BDR_RNG_NEXT;
 
     cursor = 0;
     for (i=0;i<keygen->nprefix;++i){
@@ -135,7 +131,7 @@ size_t keygen_seed2key(struct keygen *keygen, uint64_t seed, char *buf)
             _crc2key(keygen, seed64, buf + cursor, len, keygen->opt.abt_only);
         } else {
             BDR_RNG_NEXTPAIR;
-            BDR_RNG_NEXTPAIR;
+            BDR_RNG_NEXT;
             rnd_sel = get_random(&keygen->prefix_dist[i], rngz, rngz2);
             seed_local = MurmurHash64A(&rnd_sel, sizeof(rnd_sel), 0);
 
