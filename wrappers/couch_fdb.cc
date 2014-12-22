@@ -130,11 +130,16 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
     } else {
         config.wal_flush_before_commit = false;
     }
+    if (config_flags & 0x10) {
+        config.auto_commit = true;
+    } else {
+        config.auto_commit = false;
+    }
     config.prefetch_duration = 30;
 
     kvs_config = fdb_get_default_kvs_config();
 
-    *pDb = (Db*)malloc(sizeof(Db));
+    *pDb = (Db*)calloc(1, sizeof(Db));
     (*pDb)->filename = (char *)malloc(strlen(filename)+1);
     strcpy((*pDb)->filename, filename);
 
