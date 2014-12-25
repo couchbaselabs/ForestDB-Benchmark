@@ -84,6 +84,7 @@ struct bench_info {
     struct rndinfo bodylen;
     size_t nbatches;
     size_t nops;
+    size_t warmup_secs;
     size_t bench_secs;
     struct rndinfo batch_dist;
     struct rndinfo rbatchsize;
@@ -167,7 +168,9 @@ int empty_callback(Db *db, DocInfo *docinfo, void *ctx)
 }
 
 #define MAX_KEYLEN (4096)
-void _create_doc(struct bench_info *binfo, size_t idx, Doc **pdoc, DocInfo **pinfo)
+void _create_doc(struct bench_info *binfo,
+                 size_t idx, Doc **pdoc,
+                 DocInfo **pinfo)
 {
     int r;
     uint32_t crc;
@@ -1025,13 +1028,8 @@ void * bench_thread(void *voidargs)
                 free(rq_info_arr[i]);
             }
 #endif
-
-            spin_lock(&args->b_stat->lock);
-            args->b_stat->op_count_write += batchsize;
-            args->b_stat->batch_count++;
-            spin_unlock(&args->b_stat->lock);
-
             op_w_cum += batchsize;
+
         } else {
             // read
             for (j=0;j<batchsize;++j){
@@ -1057,18 +1055,24 @@ void * bench_thread(void *voidargs)
                 couchstore_free_document(rq_doc);
                 free(rq_id.buf);
             }
-
-            spin_lock(&args->b_stat->lock);
-            args->b_stat->op_count_read += batchsize;
-            args->b_stat->batch_count++;
-            spin_unlock(&args->b_stat->lock);
-
             op_r_cum += batchsize;
         }
 
         if (monitoring) {
             gap = stopwatch_get_curtime(&sw_latency);
             l_stat->samples[cur_sample] = _timeval_to_us(gap);
+        }
+
+        if (write_mode) {
+            spin_lock(&args->b_stat->lock);
+            args->b_stat->op_count_write += batchsize;
+            args->b_stat->batch_count++;
+            spin_unlock(&args->b_stat->lock);
+        } else {
+            spin_lock(&args->b_stat->lock);
+            args->b_stat->op_count_read += batchsize;
+            args->b_stat->batch_count++;
+            spin_unlock(&args->b_stat->lock);
         }
     }
 
@@ -1175,7 +1179,7 @@ void _print_percentile(struct bench_info *binfo,
 {
     int percentile[5] = {1, 5, 50, 95, 99};
     uint64_t i, pos, begin, end;
-    uint64_t avg = 0;
+    double avg = 0;
 
     if (l_stat->nsamples < 100) {
         // more than 100 samples are necessary
@@ -1191,9 +1195,9 @@ void _print_percentile(struct bench_info *binfo,
         avg += l_stat->samples[i];
     }
     avg /= (end - begin);
-    lprintf("%d samples (%d Hz), average: %d %s\n",
+    lprintf("%d samples (%d Hz), average: %.2f %s\n",
             (int)l_stat->nsamples, (int)binfo->latency_rate,
-            (int)avg, unit);
+            avg, unit);
 
     for (i=0; i<5; ++i) { // screen: only 7 percentiles
         pos = l_stat->nsamples * percentile[i] / 100;
@@ -1229,6 +1233,7 @@ void do_bench(struct bench_info *binfo)
     void *compactor_ret;
     void **bench_worker_ret;
     double gap_double;
+    bool warmingup = false;
     Db *db[binfo->nfiles];
 #ifdef __FDB_BENCH
     Db *info_handle[binfo->nfiles];
@@ -1367,6 +1372,7 @@ void do_bench(struct bench_info *binfo)
 
     // ==== perform benchmark ====
     lprintf("\nbenchmark\n");
+    lprintf("opening DB instance .. ");
 
     compaction_turn = 0;
 
@@ -1485,6 +1491,11 @@ void do_bench(struct bench_info *binfo)
     stopwatch_init(&progress);
     stopwatch_start(&progress);
 
+    if (binfo->warmup_secs) {
+        warmingup = true;
+        lprintf("\nwarming up\n");
+    }
+
     i = 0;
     while (i<binfo->nbatches || binfo->nbatches == 0) {
         spin_lock(&b_stat.lock);
@@ -1530,21 +1541,30 @@ void do_bench(struct bench_info *binfo)
             stopwatch_stop(&sw);
             printf("\r");
 
-            if (binfo->nbatches > 0) {
+            if (!warmingup && binfo->nbatches > 0) {
+                // batch count
                 printf("%5.1f %% (", i*100.0 / (binfo->nbatches-1));
                 gap = sw.elapsed;
                 PRINT_TIME(gap, " s, ");
-            }else if (binfo->bench_secs > 0){
+            } else if (warmingup || binfo->bench_secs > 0) {
+                // seconds
                 printf("(");
                 gap = sw.elapsed;
                 PRINT_TIME(gap, " s / ");
-                printf("%d s, ", (int)binfo->bench_secs);
-            }else {
+                if (warmingup) {
+                    printf("%d s, ", (int)binfo->warmup_secs);
+                } else {
+                    printf("%d s, ", (int)binfo->bench_secs);
+                }
+            } else {
+                // # operations
                 printf("%5.1f %% (",
-                       (op_count_read+op_count_write)*100.0 / (binfo->nops-1));
+                       (op_count_read+op_count_write)*100.0 /
+                           (binfo->nops-1));
                 gap = sw.elapsed;
                 PRINT_TIME(gap, " s, ");
             }
+
             printf("%8.2f ops, ",
                 (double)(op_count_read + op_count_write) /
                 (gap.tv_sec + (double)gap.tv_usec / 1000000.0));
@@ -1671,8 +1691,33 @@ void do_bench(struct bench_info *binfo)
                 spin_unlock(&cur_compaction_lock);
             }
 
-            if (sw.elapsed.tv_sec >= binfo->bench_secs &&
-                binfo->bench_secs > 0) break;
+            if (binfo->bench_secs && !warmingup &&
+                sw.elapsed.tv_sec >= binfo->bench_secs)
+                break;
+
+            if (warmingup &&
+                sw.elapsed.tv_sec >= binfo->warmup_secs) {
+                // end of warming up .. initialize stats
+                stopwatch_init_start(&sw);
+                prev_op_count_read = op_count_read = 0;
+                prev_op_count_write = op_count_write = 0;
+                spin_lock(&b_stat.lock);
+                b_stat.op_count_read = 0;
+                b_stat.op_count_write = 0;
+                b_stat.batch_count = 0;
+                spin_unlock(&b_stat.lock);
+                spin_lock(&l_read.lock);
+                l_read.cursor = 0;
+                l_read.nsamples = 0;
+                spin_unlock(&l_read.lock);
+                spin_lock(&l_write.lock);
+                l_write.cursor = 0;
+                l_write.nsamples = 0;
+                spin_unlock(&l_write.lock);
+
+                warmingup = false;
+                lprintf("\nevaluation\n");
+            }
 
             stopwatch_start(&progress);
         } else {
@@ -1682,8 +1727,9 @@ void do_bench(struct bench_info *binfo)
         }
 
 next_loop:
-        if ((op_count_read + op_count_write) >= binfo->nops &&
-            binfo->nops > 0) break;
+        if (binfo->nops && !warmingup &&
+            (op_count_read + op_count_write) >= binfo->nops)
+            break;
 
         if (got_signal) {
             break;
@@ -1712,10 +1758,18 @@ next_loop:
         thread_join(tid_compactor, &compactor_ret);
     }
 
-    lprintf("%d reads (%.2f ops/sec)\n"
-            "%d writes (%.2f ops/sec)\n",
-            op_count_read, (double)op_count_read / gap_double,
-            op_count_write, (double)op_count_write / gap_double);
+    if (op_count_read) {
+        lprintf("%d reads (%.2f ops/sec, %.2f us/read)\n",
+                op_count_read,
+                (double)op_count_read / gap_double,
+                gap_double * 1000000 * binfo->nreaders / op_count_read);
+    }
+    if (op_count_write) {
+        lprintf("%d writes (%.2f ops/sec, %.2f us/write)\n",
+                op_count_write,
+                (double)op_count_write / gap_double,
+                gap_double * 1000000 * binfo->nwriters / op_count_write);
+    }
 
     lprintf("total %d operations (%.2f ops/sec) performed\n",
             op_count_read + op_count_write,
@@ -1750,13 +1804,23 @@ next_loop:
             lprintf("average disk write throughput: %.2f MB/s\n",
                     (double)written / (gap.tv_sec*1000000 + gap.tv_usec) *
                         1000000 / (1024*1024));
-            lprintf("%s written per doc update (%.1fx write amplification)\n",
+            lprintf("%s written per doc update (%.1f x write amplification)\n",
                     print_filesize_approx(w_per_doc, bodybuf),
                     (double)w_per_doc / avg_docsize);
         }
     }
 #endif
 
+    if (binfo->latency_rate) {
+        if (binfo->nwriters) {
+            lprintf("\nwrite latency distribution\n");
+            _print_percentile(binfo, &l_write, "us");
+        }
+        if (binfo->nreaders) {
+            lprintf("\nread latency distribution\n");
+            _print_percentile(binfo, &l_read, "us");
+        }
+    }
     lprintf("\n");
 
     keygen_free(&binfo->keygen);
@@ -1797,11 +1861,6 @@ next_loop:
 
     _bench_result_print(&result);
     _bench_result_free(&result);
-
-    lprintf("\nwrite latency distribution\n");
-    _print_percentile(binfo, &l_write, "us");
-    lprintf("\nread latency distribution\n");
-    _print_percentile(binfo, &l_read, "us");
 
     spin_destroy(&b_stat.lock);
     spin_destroy(&l_read.lock);
@@ -2133,6 +2192,7 @@ struct bench_info get_benchinfo()
 
     binfo.nbatches = iniparser_getint(cfg, (char*)"operation:nbatches", 0);
     binfo.nops = iniparser_getint(cfg, (char*)"operation:nops", 0);
+    binfo.warmup_secs = iniparser_getint(cfg, (char*)"operation:warmingup", 0);
     binfo.bench_secs = iniparser_getint(cfg, (char*)"operation:duration", 0);
     if (binfo.nbatches == 0 && binfo.nops == 0 && binfo.bench_secs == 0) {
         binfo.bench_secs = 60;
