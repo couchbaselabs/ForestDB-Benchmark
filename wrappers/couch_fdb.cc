@@ -6,15 +6,6 @@
 
 #include "libforestdb/forestdb.h"
 #include "couch_db.h"
-/*
-#include "configuration.h"
-#include "debug.h"
-#include "option.h"
-#include "bitwise_utils.h"
-#include "filemgr.h"
-#include "filemgr_ops.h"
-#include "wal.h"
-#include "btreeblock.h"*/
 
 #include "memleak.h"
 
@@ -149,8 +140,6 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
     (*pDb)->dbfile = dbfile;
     (*pDb)->fdb = fdb;
 
-    status = fdb_set_log_callback(fdb, logCallbackFunc, (void*)"worker");
-
     if (status == FDB_RESULT_SUCCESS) {
         return COUCHSTORE_SUCCESS;
     } else {
@@ -179,9 +168,9 @@ couchstore_error_t couchstore_db_info(Db *db, DbInfo* info)
     info->space_used = fdb_estimate_space_used(db->dbfile);
 
     // hack the DB handle to get internal filename
-    offset = sizeof(void*)*4;
+    offset = sizeof(fdb_kvs_config) + sizeof(void*)*5;
     file = *(char***)((uint8_t*)db->fdb + offset);
-    offset = sizeof(void*)*5;
+    offset = sizeof(fdb_kvs_config) + sizeof(void*)*6;
     new_file = *(char***)((uint8_t*)db->fdb + offset);
 
     if (new_file) {
@@ -450,7 +439,6 @@ couchstore_error_t couchstore_open_document(Db *db,
     return ret;
 }
 
-
 LIBCOUCHSTORE_API
 void couchstore_free_document(Doc *doc)
 {
@@ -462,7 +450,6 @@ void couchstore_free_document(Doc *doc)
 LIBCOUCHSTORE_API
 void couchstore_free_docinfo(DocInfo *docinfo)
 {
-    //free(docinfo->rev_meta.buf);
     free(docinfo);
 }
 
@@ -478,7 +465,6 @@ couchstore_error_t couchstore_compact_db_ex(Db* source, const char* target_filen
         uint64_t flags, const couch_file_ops *ops)
 {
     char *new_filename = (char *)target_filename;
-    fdb_set_log_callback(source->fdb, logCallbackFunc, (void*)"compactor");
     fdb_compact(source->dbfile, new_filename);
 
     return COUCHSTORE_SUCCESS;
