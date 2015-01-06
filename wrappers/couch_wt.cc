@@ -8,6 +8,7 @@
 
 #include "wiredtiger.h"
 #include "couch_db.h"
+#include "memleak.h"
 
 #define METABUF_MAXLEN (256)
 
@@ -51,7 +52,8 @@ couchstore_error_t couchstore_open_conn(const char *filename)
                     "log=(enabled),"
                     "checkpoint=(wait=%d),"
                     "cache_size=%" _F64,
-                    c_period, cache_size);
+                    c_period,
+                    cache_size);
     // create directory if not exist
     fd = open(filename, O_RDONLY, 0666);
     if (fd == -1) {
@@ -62,7 +64,8 @@ couchstore_error_t couchstore_open_conn(const char *filename)
         ret = system(cmd);
     }
 
-    wiredtiger_open(filename, NULL, config, &conn);
+    ret = wiredtiger_open(filename, NULL, config, &conn);
+    assert(ret == 0);
 
     return COUCHSTORE_SUCCESS;
 }
@@ -88,7 +91,7 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
                                          const couch_file_ops *ops,
                                          Db **pDb)
 {
-    int i, len;
+    int i, len, ret;
     Db *ppdb;
     char fileonly[256];
     char table_name[256];
@@ -129,7 +132,12 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
                 "internal_page_max=4KB,leaf_page_max=4KB");
     }
 
-    conn->open_session(conn, NULL, NULL, &ppdb->session);
+    ret = conn->open_session(conn, NULL, NULL, &ppdb->session);
+    if (ret != 0) {
+        fprintf(stderr, "Error: %s\n",
+                        wiredtiger_strerror(ret));
+        assert(0);
+    }
     ppdb->session->create(ppdb->session, table_name, table_config);
     ppdb->session->open_cursor(ppdb->session, table_name, NULL, NULL, &ppdb->cursor);
     ppdb->sync = (flags & 0x10)?(1):(0);
@@ -203,8 +211,10 @@ couchstore_error_t couchstore_save_documents(Db *db, Doc* const docs[], DocInfo 
     uint8_t *buf;
     WT_ITEM item;
 
-    ret = db->session->begin_transaction(db->session, (db->sync)?"sync":NULL);
-    assert(ret==0);
+    if (db->sync) {
+        ret = db->session->begin_transaction(db->session, "sync");
+        assert(ret==0);
+    }
 
     for (i=0;i<numdocs;++i){
         item.data = docs[i]->id.buf;
@@ -223,15 +233,17 @@ couchstore_error_t couchstore_save_documents(Db *db, Doc* const docs[], DocInfo 
 
         ret = db->cursor->insert(db->cursor);
         if (ret != 0) {
-            printf("ERR\n");
+            printf("ERR %d\n", ret);
         }
 
         infos[i]->db_seq = 0;
         free(buf);
     }
 
-    ret = db->session->commit_transaction(db->session, NULL);
-    assert(ret==0);
+    if (db->sync) {
+        ret = db->session->commit_transaction(db->session, NULL);
+        assert(ret==0);
+    }
 
     return COUCHSTORE_SUCCESS;
 }
