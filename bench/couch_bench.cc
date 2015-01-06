@@ -878,6 +878,11 @@ void * bench_thread(void *voidargs)
                 }
             }
             break;
+
+        case 3: // dummy thread
+            // just sleep
+            usleep(100000);
+            continue;
         }
 
         // randomly set batchsize
@@ -1272,6 +1277,10 @@ void do_bench(struct bench_info *binfo)
     couchstore_set_compaction(binfo->auto_compaction, binfo->compact_thres);
     couchstore_set_wal_size(binfo->fdb_wal);
 #endif
+#if defined(__WT_BENCH) || defined(__FDB_BENCH)
+    // WiredTiger & ForestDB: set compaction period
+    couchstore_set_chk_period(binfo->compact_period);
+#endif
 
     if (binfo->initialize) {
         // === initialize and populate files ========
@@ -1289,10 +1298,6 @@ void do_bench(struct bench_info *binfo)
             }
         }
 
-#if defined(__WT_BENCH) || defined(__FDB_BENCH)
-        // WiredTiger & ForestDB: set compaction period
-        couchstore_set_chk_period(binfo->compact_period);
-#endif
 #if defined(__WT_BENCH)
         // WiredTiger: open connection
         couchstore_set_idx_type(binfo->wt_type);
@@ -1416,11 +1421,11 @@ void do_bench(struct bench_info *binfo)
 
     // thread args
     if (binfo->nreaders == 0 && binfo->nwriters == 0){
-        // create a rw thread
+        // create a dummy thread
         bench_threads = 1;
         b_args = alca(struct bench_thread_args, bench_threads);
         bench_worker = alca(thread_t, bench_threads);
-        b_args[0].mode = 0;
+        b_args[0].mode = 3; // dummy thread
     } else {
         bench_threads = binfo->nreaders + binfo->nwriters;
         b_args = alca(struct bench_thread_args, bench_threads);
