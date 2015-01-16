@@ -1756,6 +1756,11 @@ next_loop:
         thread_join(bench_worker[i], &bench_worker_ret[i]);
     }
 
+    spin_lock(&b_stat.lock);
+    op_count_read = b_stat.op_count_read;
+    op_count_write = b_stat.op_count_write;
+    spin_unlock(&b_stat.lock);
+
     // waiting for unterminated compactor & bench workers
     if (cur_compaction != -1) {
         lprintf("waiting for termination of remaining compaction..\n");
