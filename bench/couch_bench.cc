@@ -105,6 +105,9 @@ struct bench_info {
 #define MIN(a,b) (((a)<(b))?(a):(b))
 
 static uint32_t rnd_seed;
+static int print_term_ms = 100;
+static int filesize_chk_term = 4;
+
 FILE *log_fp = NULL;
 #define lprintf(...) {   \
     printf(__VA_ARGS__); \
@@ -160,6 +163,36 @@ void print_filesize(char *filename)
 
     printf("file size : %lu bytes (%s)\n",
            (unsigned long)size, print_filesize_approx(size, buf));
+}
+
+#if defined(__linux) && !defined(__ANDROID__)
+    #define __PRINT_IOSTAT
+#endif
+uint64_t print_proc_io_stat(char *buf, int print)
+{
+#ifdef __PRINT_IOSTAT
+    sprintf(buf, "/proc/%d/io", getpid());
+    char str[64];
+    int ret;
+    unsigned long temp;
+    uint64_t val=0;
+    FILE *fp = fopen(buf, "r");
+    while(!feof(fp)) {
+        ret = fscanf(fp, "%s %lu", str, &temp);
+        if (!strcmp(str, "write_bytes:")) {
+            val = temp;
+            if (print) {
+                lprintf("[proc IO] %lu bytes written (%s)\n",
+                        (unsigned long)val, print_filesize_approx(val, str));
+            }
+        }
+    }
+    fclose(fp);
+    return val;
+
+#else
+    return 0;
+#endif
 }
 
 int empty_callback(Db *db, DocInfo *docinfo, void *ctx)
@@ -309,11 +342,13 @@ void * pop_thread(void *voidargs)
 
 void * pop_print_time(void *voidargs)
 {
+    char buf[1024];
     double iops, iops_i;
     uint64_t counter = 0, counter_prev = 0;
     uint64_t c = 0;
     uint64_t remain_sec;
     uint64_t elapsed_ms = 0;
+    uint64_t bytes_written;
     struct pop_thread_args *args = (struct pop_thread_args *)voidargs;
     struct bench_info *binfo = args->binfo;
     struct timeval tv, tv_i;
@@ -321,7 +356,7 @@ void * pop_print_time(void *voidargs)
     while (counter < binfo->ndocs) {
         spin_lock(args->lock);
         counter = *(args->counter);
-        if (stopwatch_check_ms(args->sw, 100)) {
+        if (stopwatch_check_ms(args->sw, print_term_ms)) {
             tv = stopwatch_get_curtime(args->sw_long);
             tv_i = stopwatch_get_curtime(args->sw);
             stopwatch_start(args->sw);
@@ -338,23 +373,33 @@ void * pop_print_time(void *voidargs)
                      (tv_i.tv_sec + tv_i.tv_usec/1000000.0);
             counter_prev = counter;
 
+            if (c % filesize_chk_term == 0) {
+                bytes_written = print_proc_io_stat(buf, 0);
+            }
+
+            // elapsed time
             printf("\r[%d.%01d s] ", (int)tv.tv_sec, (int)(tv.tv_usec/100000));
+            // # inserted documents
             printf("%" _F64 " / %" _F64, counter, (uint64_t)binfo->ndocs);
+            // throughput (average, instant)
             printf(" (%.2f ops, %.2f ops, ", iops, iops_i);
-            printf("%d %%)", (int)(counter * 100 / binfo->ndocs));
+            // percentage
+            printf("%.1f %%, ", (double)(counter * 100.0 / binfo->ndocs));
+            // total amount of data written
+            printf("%s) ", print_filesize_approx(bytes_written, buf));
             printf(" (-%d s)", (int)remain_sec);
             spin_unlock(args->lock);
             fflush(stdout);
 
             if (log_fp) {
                 fprintf(log_fp,
-                        "%d.%01d %.2f %.2f %" _F64 "\n",
+                        "%d.%01d %.2f %.2f %" _F64 " %" _F64 "\n",
                         (int)tv.tv_sec, (int)(tv.tv_usec/100000),
-                        iops, iops_i, (uint64_t)counter);
+                        iops, iops_i, (uint64_t)counter, bytes_written);
             }
         } else {
             spin_unlock(args->lock);
-            usleep(100000);
+            usleep(print_term_ms * 1000);
         }
     }
     return NULL;
@@ -364,8 +409,10 @@ void population(Db **db, struct bench_info *binfo)
 {
     int i;
     void *ret[binfo->pop_nthreads+1];
+    char buf[1024];
     double iops;
     uint64_t counter;
+    uint64_t bytes_written;
     thread_t tid[binfo->pop_nthreads+1];
     spin_t lock;
     struct pop_thread_args args[binfo->pop_nthreads + 1];
@@ -400,49 +447,29 @@ void population(Db **db, struct bench_info *binfo)
 
     spin_destroy(&lock);
 
+    bytes_written = print_proc_io_stat(buf, 0);
+
     tv = stopwatch_stop(&sw_long);
     iops = (double)binfo->ndocs / (tv.tv_sec + tv.tv_usec/1000000.0);
+    // elapsed time
     printf("\r[%d.%01d s] ", (int)tv.tv_sec, (int)(tv.tv_usec/100000));
+    // # inserted documents
     printf("%" _F64 " / %" _F64, counter, (uint64_t)binfo->ndocs);
+    // throughput (average, instant)
     printf(" (%.1f ops/sec, N/A, ", iops);
-    printf("%d %%)", 100);
+    // percentage
+    printf("%d %%, ", 100);
+    // total amount of data written
+    printf("%s) ", print_filesize_approx(bytes_written, buf));
     printf(" (-%d s)\n", 0);
     fflush(stdout);
 
     if (log_fp) {
         fprintf(log_fp,
-                "%d.%01d %.2f 0.00 %" _F64 "\n",
+                "%d.%01d %.2f 0.00 %" _F64 " %" _F64 "\n",
                 (int)tv.tv_sec, (int)(tv.tv_usec/100000),
-                iops, (uint64_t)binfo->ndocs);
+                iops, (uint64_t)binfo->ndocs, bytes_written);
     }
-}
-
-#if defined(__linux) && !defined(__ANDROID__)
-    #define __PRINT_IOSTAT
-#endif
-uint64_t print_proc_io_stat(char *buf)
-{
-#ifdef __PRINT_IOSTAT
-    sprintf(buf, "/proc/%d/io", getpid());
-    char str[64];
-    int ret;
-    unsigned long temp;
-    uint64_t val=0;
-    FILE *fp = fopen(buf, "r");
-    while(!feof(fp)) {
-        ret = fscanf(fp, "%s %lu", str, &temp);
-        if (!strcmp(str, "write_bytes:")) {
-            val = temp;
-            lprintf("[proc IO] %lu bytes written (%s)\n",
-                    (unsigned long)val, print_filesize_approx(val, str));
-        }
-    }
-    fclose(fp);
-    return val;
-
-#else
-    return 0;
-#endif
 }
 
 void _get_rw_factor(struct bench_info *binfo, double *prob)
@@ -643,17 +670,37 @@ void * compactor(void *voidargs)
     spin_lock(args->lock);
     *(args->cur_compaction) = -1;
     if (args->flag & 0x1) {
-        int ret, i;
+        int ret, i, j;
+        int close_ack = 0;
         char cmd[256];
-        // erase previous db file
-        sprintf(cmd, "rm -rf %s 2> errorlog.txt", curfile);
-        ret = system(cmd);
 
         for (i=0; i<args->bench_threads; ++i) {
             args->b_args[i].op_signal |= OP_REOPEN;
         }
+
+        // wait until all threads reopen the new file
+        while (1) {
+            close_ack = 0;
+            for (j=0; j<args->bench_threads; ++j) {
+                if (args->b_args[j].op_signal == 0) {
+                    close_ack++;
+                }
+            }
+            if (close_ack < args->bench_threads) {
+                usleep(10000);
+            } else {
+                break;
+            }
+        }
+
+        // erase previous db file
+        sprintf(cmd, "rm -rf %s 2> errorlog.txt", curfile);
+        ret = system(cmd);
     }
     spin_unlock(args->lock);
+
+    free(args->curfile);
+    free(args->newfile);
 
     return NULL;
 }
@@ -1227,14 +1274,16 @@ void do_bench(struct bench_info *binfo)
     BDR_RNG_VARS;
     int i, j, ret; (void)j;
     int curfile_no, compaction_turn;
-    int op_count_read, op_count_write;
-    int prev_op_count_read, prev_op_count_write;
     int compaction_no[binfo->nfiles], total_compaction = 0;
     int cur_compaction = -1;
     int bench_threads;
-    uint64_t written_init, written_final;
+    uint64_t op_count_read, op_count_write, display_tick = 0;
+    uint64_t prev_op_count_read, prev_op_count_write;
+    uint64_t written_init, written_final, written_prev;
+    uint64_t avg_docsize;
     char curfile[256], newfile[256], bodybuf[1024], cmd[256];
     char fsize1[128], fsize2[128], *str;
+    char spaces[128];
     void *compactor_ret;
     void **bench_worker_ret;
     double gap_double;
@@ -1268,7 +1317,16 @@ void do_bench(struct bench_info *binfo)
 
     _bench_result_init(&result, binfo);
 
-    written_init = written_final = 0;
+    written_init = written_final = written_prev = 0;
+    if (binfo->bodylen.type == RND_NORMAL) {
+        avg_docsize = binfo->bodylen.a;
+    } else {
+        avg_docsize = (binfo->bodylen.a + binfo->bodylen.b)/2;
+    }
+    strcpy(fsize1, print_filesize_approx(0, cmd));
+    strcpy(fsize2, print_filesize_approx(0, cmd));
+    memset(spaces, ' ', 80);
+    spaces[80] = 0;
 
 #if !defined(__COUCH_BENCH)
     couchstore_set_cache(binfo->cache_size);
@@ -1334,7 +1392,7 @@ void do_bench(struct bench_info *binfo)
 #if defined(__LEVEL_BENCH) || defined(__ROCKS_BENCH)
         gap = stopwatch_stop(&sw);
         LOG_PRINT_TIME(gap, " sec elapsed\n");
-        print_proc_io_stat(cmd);
+        print_proc_io_stat(cmd, 1);
         _wait_leveldb_compaction(binfo, db);
 #endif // __LEVEL_BENCH || __ROCKS_BENCH
 #endif // __PRINT_IOSTAT
@@ -1345,7 +1403,8 @@ void do_bench(struct bench_info *binfo)
             lprintf("done\n"); fflush(stdout);
         }
 
-        written_init = print_proc_io_stat(cmd);
+        written_final = written_init = print_proc_io_stat(cmd, 1);
+        written_prev = written_final;
 
         for (i=0;i<binfo->nfiles;++i){
             couchstore_close_db(db[i]);
@@ -1509,11 +1568,14 @@ void do_bench(struct bench_info *binfo)
         i = b_stat.batch_count;
         spin_unlock(&b_stat.lock);
 
-        if (stopwatch_check_ms(&progress, 100)) {
+        if (stopwatch_check_ms(&progress, print_term_ms)) {
             // for every 0.1 sec, print current status
             uint64_t cur_size;
             int cpt_no;
+            double elapsed_time;
             Db *temp_db;
+
+            display_tick++;
 
             // reset stopwatch for the next period
             _gap = stopwatch_get_curtime(&progress);
@@ -1522,7 +1584,9 @@ void do_bench(struct bench_info *binfo)
             BDR_RNG_NEXTPAIR;
             spin_lock(&cur_compaction_lock);
             curfile_no = compaction_turn;
-            compaction_turn = (compaction_turn + 1) % binfo->nfiles;
+            if (display_tick % filesize_chk_term == 0) {
+                compaction_turn = (compaction_turn + 1) % binfo->nfiles;
+            }
 #ifdef __FDB_BENCH
             temp_db = info_handle[curfile_no];
 #else
@@ -1532,19 +1596,25 @@ void do_bench(struct bench_info *binfo)
                      ((curfile_no == cur_compaction)?(1):(0));
             spin_unlock(&cur_compaction_lock);
 
-            couchstore_db_info(temp_db, dbinfo);
             if (binfo->auto_compaction) {
                 // auto compaction
-                strcpy(curfile, dbinfo->filename);
+                if (display_tick % filesize_chk_term == 0) {
+                    couchstore_db_info(temp_db, dbinfo);
+                    strcpy(curfile, dbinfo->filename);
+                }
             } else {
                 // manual compaction
+                couchstore_db_info(temp_db, dbinfo);
                 sprintf(curfile, "%s%d.%d",
                     binfo->filename, (int)curfile_no, cpt_no);
             }
-            cur_size = get_filesize(curfile);
 
             stopwatch_stop(&sw);
-            printf("\r");
+            // overwrite spaces
+            printf("\r%s", spaces);
+            // move a line upward
+            printf("%c[1A%c[0C", 27, 27);
+            printf("\r%s\r", spaces);
 
             if (!warmingup && binfo->nbatches > 0) {
                 // batch count
@@ -1570,53 +1640,99 @@ void do_bench(struct bench_info *binfo)
                 PRINT_TIME(gap, " s, ");
             }
 
+            elapsed_time = gap.tv_sec + (double)gap.tv_usec / 1000000.0;
+            // average throughput
             printf("%8.2f ops, ",
-                (double)(op_count_read + op_count_write) /
-                (gap.tv_sec + (double)gap.tv_usec / 1000000.0));
+                (double)(op_count_read + op_count_write) / elapsed_time);
+            // instant throughput
             printf("%8.2f ops)",
                 (double)((op_count_read + op_count_write) -
                     (prev_op_count_read + prev_op_count_write)) /
                 (_gap.tv_sec + (double)_gap.tv_usec / 1000000.0));
 
+            if (display_tick % filesize_chk_term == 0) {
+                written_prev = written_final;
+                written_final = print_proc_io_stat(cmd, 0);
+            }
+
             if (log_fp) {
+                // 1. elapsed time
+                // 2. average throughput
+                // 3. instant throughput
+                // 4. # reads
+                // 5. # writes
                 fprintf(log_fp,
                         "%d.%01d %.2f %.2f "
-                        "%d %d\n",
+                        "%" _F64 " %" _F64 " %" _F64 "\n",
                         (int)gap.tv_sec, (int)gap.tv_usec / 100000,
                         (double)(op_count_read + op_count_write) /
-                                (gap.tv_sec + (double)gap.tv_usec/1000000),
+                                (elapsed_time),
                         (double)((op_count_read + op_count_write) -
                                 (prev_op_count_read + prev_op_count_write)) /
-                                (_gap.tv_sec + (double)_gap.tv_usec/1000000),
-                        op_count_read, op_count_write);
+                                (elapsed_time),
+                        op_count_read, op_count_write,
+                        written_final - written_init);
             }
+
+            printf("\n");
+#if defined(__FDB_BENCH) || defined(__COUCH_BENCH)
+            if (display_tick % filesize_chk_term == 0) {
+                cur_size = get_filesize(curfile);
+                if (binfo->auto_compaction) { // auto
+                    print_filesize_approx(cur_size, fsize1);
+                } else { // manual
+                    char curfile_temp[256];
+                    uint64_t cur_size_temp;
+                    sprintf(curfile_temp, "%s%d.%d",
+                        binfo->filename, (int)curfile_no,
+                        compaction_no[curfile_no]);
+                    cur_size_temp = get_filesize(curfile_temp);
+                    print_filesize_approx(cur_size_temp, fsize1);
+                }
+                print_filesize_approx(dbinfo->space_used, fsize2);
+            }
+
+            // actual file size / live data size
+            printf("(%s / %s) ", fsize1, fsize2);
+#endif
+
+#ifdef __PRINT_IOSTAT // only for linux
+            uint64_t w_per_doc;
+            uint64_t inst_written_doc;
+
+            // data written
+            printf("(%s, ", print_filesize_approx(written_final - written_init, cmd));
+            // avg write throughput
+            printf("%s/s ", print_filesize_approx((written_final - written_init) /
+                                                  elapsed_time, cmd));
+            // avg write amplification
+            w_per_doc = (double)(written_final - written_init) / op_count_write;
+            printf("%.1f x, ", (double)w_per_doc / avg_docsize);
+
+            // instant write throughput
+            printf("%s/s ", print_filesize_approx(
+                                (written_final - written_prev) /
+                                (print_term_ms * filesize_chk_term / 1000.0), cmd));
+            // instant write amplification
+            inst_written_doc = (op_count_write - prev_op_count_write) *
+                               filesize_chk_term;
+            if (inst_written_doc) {
+                w_per_doc = (double)(written_final - written_prev) / inst_written_doc;
+            } else {
+                w_per_doc = 0;
+            }
+            printf("%.1f x)", (double)w_per_doc / avg_docsize);
+#endif
+            fflush(stdout);
 
             prev_op_count_read = op_count_read;
             prev_op_count_write = op_count_write;
-
-            if (binfo->auto_compaction) { // auto
-                print_filesize_approx(cur_size, fsize1);
-            } else { // manual
-                char curfile_temp[256];
-                uint64_t cur_size_temp;
-                sprintf(curfile_temp, "%s%d.%d",
-                    binfo->filename, (int)curfile_no,
-                    compaction_no[curfile_no]);
-                cur_size_temp = get_filesize(curfile_temp);
-                print_filesize_approx(cur_size_temp, fsize1);
-            }
-
-            print_filesize_approx(dbinfo->space_used, fsize2);
-#if !defined(__WT_BENCH)
-            printf(" (%s / %s)", fsize1, fsize2);
-#endif
-            fflush(stdout);
 
             stopwatch_start(&sw);
 
             // valid:invalid size check
             spin_lock(&cur_compaction_lock);
-            if (cur_compaction == -1) {
+            if (cur_compaction == -1 && display_tick % filesize_chk_term == 0) {
                 if (!binfo->auto_compaction &&
                     cur_size > dbinfo->space_used &&
                     binfo->compact_thres > 0 &&
@@ -1637,8 +1753,11 @@ void do_bench(struct bench_info *binfo)
                     sprintf(newfile, "%s%d.%d",
                             binfo->filename, (int)curfile_no,
                             compaction_no[curfile_no]);
-                    printf(" [C#%d %s >> %s]",
+                    printf("\n[C#%d %s >> %s]",
                            total_compaction, curfile, newfile);
+                    // move a line upward
+                    printf("%c[1A%c[0C", 27, 27);
+                    printf("\r");
                     if (log_fp) {
                         fprintf(log_fp, " [C#%d %s >> %s]\n",
                                 total_compaction, curfile, newfile);
@@ -1668,8 +1787,10 @@ void do_bench(struct bench_info *binfo)
 
                     c_args.flag = 1;
                     c_args.binfo = binfo;
-                    c_args.curfile = curfile;
-                    c_args.newfile = newfile;
+                    c_args.curfile = (char*)malloc(256);
+                    c_args.newfile = (char*)malloc(256);
+                    strcpy(c_args.curfile, curfile);
+                    strcpy(c_args.newfile, newfile);
                     c_args.sw_compaction = &sw_compaction;
                     c_args.cur_compaction = &cur_compaction;
                     c_args.bench_threads = bench_threads;
@@ -1678,15 +1799,17 @@ void do_bench(struct bench_info *binfo)
                     thread_create(&tid_compactor, compactor, &c_args);
 #endif
 #ifdef __FDB_BENCH
+                    c_args.flag = 0;
                     c_args.binfo = binfo;
-                    c_args.curfile = curfile;
-                    c_args.newfile = newfile;
+                    c_args.curfile = (char*)malloc(256);
+                    c_args.newfile = (char*)malloc(256);
+                    strcpy(c_args.curfile, curfile);
+                    strcpy(c_args.newfile, newfile);
                     c_args.sw_compaction = &sw_compaction;
                     c_args.cur_compaction = &cur_compaction;
                     c_args.bench_threads = bench_threads;
                     c_args.b_args = b_args;
                     c_args.lock = &cur_compaction_lock;
-                    c_args.flag = 0;
                     thread_create(&tid_compactor, compactor, &c_args);
 #endif
                 } else {
@@ -1728,7 +1851,7 @@ void do_bench(struct bench_info *binfo)
         } else {
             // sleep 0.1 sec
             stopwatch_start(&progress);
-            usleep(100000);
+            usleep(print_term_ms * 1000);
         }
 
 next_loop:
@@ -1769,19 +1892,19 @@ next_loop:
     }
 
     if (op_count_read) {
-        lprintf("%d reads (%.2f ops/sec, %.2f us/read)\n",
+        lprintf("%" _F64 " reads (%.2f ops/sec, %.2f us/read)\n",
                 op_count_read,
                 (double)op_count_read / gap_double,
                 gap_double * 1000000 * binfo->nreaders / op_count_read);
     }
     if (op_count_write) {
-        lprintf("%d writes (%.2f ops/sec, %.2f us/write)\n",
+        lprintf("%" _F64 " writes (%.2f ops/sec, %.2f us/write)\n",
                 op_count_write,
                 (double)op_count_write / gap_double,
                 gap_double * 1000000 * binfo->nwriters / op_count_write);
     }
 
-    lprintf("total %d operations (%.2f ops/sec) performed\n",
+    lprintf("total %" _F64 " operations (%.2f ops/sec) performed\n",
             op_count_read + op_count_write,
              (double)(op_count_read + op_count_write) / gap_double);
 
@@ -1794,23 +1917,17 @@ next_loop:
     }
 #endif
 
-    written_final = print_proc_io_stat(cmd);
+    written_final = print_proc_io_stat(cmd, 1);
 #if defined(__PRINT_IOSTAT)
     {
         uint64_t written = written_final - written_init;
         uint64_t w_per_doc = (double)written / op_count_write;
-        uint64_t avg_docsize;
 
         if (op_count_write) {
             lprintf("total %" _F64 " bytes (%s) written during benchmark\n",
                     written,
                     print_filesize_approx((written_final - written_init),
                                           bodybuf));
-            if (binfo->bodylen.type == RND_NORMAL) {
-                avg_docsize = binfo->bodylen.a;
-            } else {
-                avg_docsize = (binfo->bodylen.a + binfo->bodylen.b)/2;
-            }
             lprintf("average disk write throughput: %.2f MB/s\n",
                     (double)written / (gap.tv_sec*1000000 + gap.tv_usec) *
                         1000000 / (1024*1024));
