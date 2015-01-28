@@ -176,36 +176,38 @@ INLINE struct avl_node* _rotate_RL(struct avl_node *parent, int parent_bf)
 
 #define _get_balance(node) ((node)?(avl_bf(node)):(0))
 
-struct avl_node* _balance_tree(struct avl_node *node, int bf)
+static struct avl_node* _balance_tree(struct avl_node *node, int bf)
 {
     int child_bf;
     int height_diff= _get_balance(node) + bf;
 
-    __AVL_DEBUG_BAL_BEGIN(node, bf, height_diff);
+    if (node) {
+        __AVL_DEBUG_BAL_BEGIN(node, bf, height_diff);
 
-    if(height_diff < -1 && node->left) {
-        // balance left sub tree
-        if(_get_balance(node->left) <= 0) {
-            child_bf = avl_bf(node->left);
-            node = _rotate_LL(node, height_diff, &child_bf, NULL);
-            avl_set_bf(node, child_bf);
+        if(height_diff < -1 && node->left) {
+            // balance left sub tree
+            if(_get_balance(node->left) <= 0) {
+                child_bf = avl_bf(node->left);
+                node = _rotate_LL(node, height_diff, &child_bf, NULL);
+                avl_set_bf(node, child_bf);
+            } else {
+                node = _rotate_LR(node, height_diff);
+            }
+        } else if(height_diff > 1 && node->right) {
+            // balance right sub tree
+            if(_get_balance(node->right) >= 0) {
+                child_bf = avl_bf(node->right);
+                node = _rotate_RR(node, height_diff, &child_bf, NULL);
+                avl_set_bf(node, child_bf);
+            } else {
+                node = _rotate_RL(node, height_diff);
+            }
         } else {
-            node = _rotate_LR(node, height_diff);
+            avl_set_bf(node, avl_bf(node) + bf);
         }
-    } else if(height_diff > 1 && node->right) {
-        // balance right sub tree
-        if(_get_balance(node->right) >= 0) {
-            child_bf = avl_bf(node->right);
-            node = _rotate_RR(node, height_diff, &child_bf, NULL);
-            avl_set_bf(node, child_bf);
-        } else {
-            node = _rotate_RL(node, height_diff);
-        }
-    } else {
-        avl_set_bf(node, avl_bf(node) + bf);
+
+        __AVL_DEBUG_BAL_END(node);
     }
-
-    __AVL_DEBUG_BAL_END(node);
 
     return node;
 }
@@ -335,8 +337,8 @@ struct avl_node* avl_search(struct avl_tree *tree,
 }
 
 struct avl_node* avl_search_greater(struct avl_tree *tree,
-                            struct avl_node *node,
-                            avl_cmp_func *func)
+                                    struct avl_node *node,
+                                    avl_cmp_func *func)
 // if an exact match does not exist,
 // return smallest node greater than NODE
 {
@@ -359,11 +361,52 @@ struct avl_node* avl_search_greater(struct avl_tree *tree,
         }
     }
 
+    if (!pp) {
+        return pp;
+    }
+
     cmp = func(pp, node, tree->aux);
     if (cmp > 0) {
         return pp;
     }else{
         return avl_next(pp);
+    }
+}
+
+struct avl_node* avl_search_smaller(struct avl_tree *tree,
+                                    struct avl_node *node,
+                                    avl_cmp_func *func)
+// if an exact match does not exist,
+// return greatest node smaller than NODE
+{
+    struct avl_node *p = tree->root;
+    struct avl_node *pp = NULL;
+    int cmp;
+
+    while(p)
+    {
+        cmp = func(p, node, tree->aux);
+        pp = p;
+
+        if (cmp > 0) {
+            p = p->left;
+        }else if (cmp < 0){
+            p = p->right;
+        }else {
+            // search success
+            return p;
+        }
+    }
+
+    if (!pp) {
+        return pp;
+    }
+
+    cmp = func(pp, node, tree->aux);
+    if (cmp < 0) {
+        return pp;
+    }else{
+        return avl_prev(pp);
     }
 }
 
@@ -438,7 +481,6 @@ struct avl_node* avl_insert(struct avl_tree *tree,
 
         if (p) {
             // if parent exists
-            cur = node;
             bf_old = avl_bf(node);
 
             if (p->right == node) {
