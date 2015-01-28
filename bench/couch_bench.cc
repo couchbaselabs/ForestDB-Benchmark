@@ -74,6 +74,7 @@ struct bench_info {
 
     // benchmark threads
     size_t nreaders;
+    size_t niterators;
     size_t nwriters;
     size_t reader_ops;
     size_t writer_ops;
@@ -88,6 +89,7 @@ struct bench_info {
     size_t bench_secs;
     struct rndinfo batch_dist;
     struct rndinfo rbatchsize;
+    struct rndinfo ibatchsize;
     struct rndinfo wbatchsize;
     struct rndinfo op_dist;
     size_t batchrange;
@@ -785,6 +787,35 @@ struct latency_stat {
     spin_t lock;
 };
 
+struct iterate_args {
+    uint64_t batchsize;
+    uint64_t counter;
+};
+
+int iterate_callback(Db *db,
+                     int depth,
+                     const DocInfo* doc_info,
+                     uint64_t subtree_size,
+                     const sized_buf* reduce_value,
+                     void *ctx)
+{
+    struct iterate_args *args = (struct iterate_args *)ctx;
+    if (doc_info) {
+        args->counter++;
+#if defined(__COUCH_BENCH)
+        // in Couchstore, we should read the entire doc using doc_info
+        Doc *doc = NULL;
+        couchstore_open_doc_with_docinfo(db, (DocInfo*)doc_info, &doc, 0x0);
+        couchstore_free_document(doc);
+#endif
+    }
+    if (args->counter < args->batchsize) {
+        return 0;
+    } else {
+        return -1; // abort
+    }
+}
+
 void * bench_thread(void *voidargs)
 {
     struct bench_thread_args *args = (struct bench_thread_args *)voidargs;
@@ -902,7 +933,8 @@ void * bench_thread(void *voidargs)
             }
             break;
 
-        case 2: // reader
+        case 2: // reader & iterator
+        case 3:
             write_mode = 0;
             if (binfo->reader_ops > 0 && binfo->write_prob > 100) {
                 // ops mode
@@ -926,7 +958,7 @@ void * bench_thread(void *voidargs)
             }
             break;
 
-        case 3: // dummy thread
+        case 4: // dummy thread
             // just sleep
             usleep(100000);
             continue;
@@ -937,9 +969,16 @@ void * bench_thread(void *voidargs)
         if (write_mode) {
             batchsize = get_random(&binfo->wbatchsize, rngz, rngz2);
             if (batchsize <= 0) batchsize = 1;
-        }else{
-            batchsize = get_random(&binfo->rbatchsize, rngz, rngz2);
-            if (batchsize <= 0) batchsize = 1;
+        } else {
+            if (args->mode == 2) {
+                // reader
+                batchsize = get_random(&binfo->rbatchsize, rngz, rngz2);
+                if (batchsize <= 0) batchsize = 1;
+            } else {
+                // iterator
+                batchsize = get_random(&binfo->ibatchsize, rngz, rngz2);
+                if (batchsize <= 0) batchsize = 1;
+            }
         }
 
         // ramdomly set document distribution for batch
@@ -947,7 +986,7 @@ void * bench_thread(void *voidargs)
             // uniform distribution
             BDR_RNG_NEXTPAIR;
             op_med = get_random(&binfo->batch_dist, rngz, rngz2);
-        }else{
+        } else {
             // zipfian distribution
             BDR_RNG_NEXTPAIR;
             op_med = zipf_rnd_get(zipf);
@@ -961,7 +1000,7 @@ void * bench_thread(void *voidargs)
             op_dist.type = RND_NORMAL;
             op_dist.a = op_med;
             op_dist.b = binfo->batchrange/2;
-        }else {
+        } else {
             op_dist.type = RND_UNIFORM;
             op_dist.a = op_med - binfo->batchrange;
             op_dist.b = op_med + binfo->batchrange;
@@ -1082,7 +1121,7 @@ void * bench_thread(void *voidargs)
 #endif
             op_w_cum += batchsize;
 
-        } else {
+        } else if (args->mode == 2) {
             // read
             for (j=0;j<batchsize;++j){
 
@@ -1107,6 +1146,26 @@ void * bench_thread(void *voidargs)
                 couchstore_free_document(rq_doc);
                 free(rq_id.buf);
             }
+            op_r_cum += batchsize;
+
+        } else {
+            // iterate
+            struct iterate_args i_args;
+
+            r = op_med;
+            curfile_no = GET_FILE_NO(binfo->ndocs, binfo->nfiles, r);
+
+            rq_id.size = keygen_seed2key(&binfo->keygen, r, keybuf);
+            rq_id.buf = (char *)malloc(rq_id.size);
+            memcpy(rq_id.buf, keybuf, rq_id.size);
+
+            i_args.batchsize = batchsize;
+            i_args.counter = 0;
+            err = couchstore_walk_id_tree(db[curfile_no], &rq_id, 1,
+                                          iterate_callback, (void *)&i_args);
+            free(rq_id.buf);
+
+            batchsize = i_args.counter;
             op_r_cum += batchsize;
         }
 
@@ -1479,18 +1538,25 @@ void do_bench(struct bench_info *binfo)
     spin_init(&l_write.lock);
 
     // thread args
-    if (binfo->nreaders == 0 && binfo->nwriters == 0){
+    if (binfo->nreaders + binfo->niterators + binfo->nwriters == 0){
         // create a dummy thread
         bench_threads = 1;
         b_args = alca(struct bench_thread_args, bench_threads);
         bench_worker = alca(thread_t, bench_threads);
-        b_args[0].mode = 3; // dummy thread
+        b_args[0].mode = 4; // dummy thread
     } else {
-        bench_threads = binfo->nreaders + binfo->nwriters;
+        bench_threads = binfo->nreaders + binfo->niterators + binfo->nwriters;
         b_args = alca(struct bench_thread_args, bench_threads);
         bench_worker = alca(thread_t, bench_threads);
         for (i=0;i<bench_threads;++i){
-            b_args[i].mode = (i < binfo->nwriters)?(1):(2);
+            // writer, reader, iterator
+            if (i < binfo->nwriters) {
+                b_args[i].mode = 1; // writer
+            } else if (i < binfo->nwriters + binfo->nreaders) {
+                b_args[i].mode = 2; // reader
+            } else {
+                b_args[i].mode = 3; // iterator
+            }
         }
     }
     bench_worker_ret = alca(void*, bench_threads);
@@ -1706,7 +1772,11 @@ void do_bench(struct bench_info *binfo)
             printf("%s/s ", print_filesize_approx((written_final - written_init) /
                                                   elapsed_time, cmd));
             // avg write amplification
-            w_per_doc = (double)(written_final - written_init) / op_count_write;
+            if (written_final - written_init > 0) {
+                w_per_doc = (double)(written_final - written_init) / op_count_write;
+            } else {
+                w_per_doc = 0;
+            }
             printf("%.1f x, ", (double)w_per_doc / avg_docsize);
 
             // instant write throughput
@@ -1895,7 +1965,8 @@ next_loop:
         lprintf("%" _F64 " reads (%.2f ops/sec, %.2f us/read)\n",
                 op_count_read,
                 (double)op_count_read / gap_double,
-                gap_double * 1000000 * binfo->nreaders / op_count_read);
+                gap_double * 1000000 * (binfo->nreaders + binfo->niterators) /
+                    op_count_read);
     }
     if (op_count_write) {
         lprintf("%" _F64 " writes (%.2f ops/sec, %.2f us/write)\n",
@@ -1943,7 +2014,7 @@ next_loop:
             lprintf("\nwrite latency distribution\n");
             _print_percentile(binfo, &l_write, "us");
         }
-        if (binfo->nreaders) {
+        if (binfo->nreaders + binfo->niterators) {
             lprintf("\nread latency distribution\n");
             _print_percentile(binfo, &l_read, "us");
         }
@@ -2023,7 +2094,8 @@ void _print_benchinfo(struct bench_info *binfo)
     }
 
     lprintf("# threads: ");
-    lprintf("reader %d", (int)binfo->nreaders);
+    lprintf("reader %d, iterator %d", (int)binfo->nreaders,
+                                      (int)binfo->niterators);
     if (binfo->write_prob > 100) {
         if (binfo->reader_ops) {
             lprintf(" (%d ops/sec), ", (int)binfo->reader_ops);
@@ -2087,9 +2159,11 @@ void _print_benchinfo(struct bench_info *binfo)
                 (unsigned long)binfo->bench_secs);
     }
 
-    lprintf("read batch size: %s(%d,%d) / ",
+    lprintf("read batch size: point %s(%d,%d), range %s(%d,%d)\n",
             (binfo->rbatchsize.type == RND_NORMAL)?"Norm":"Uniform",
-            (int)binfo->rbatchsize.a, (int)binfo->rbatchsize.b);
+            (int)binfo->rbatchsize.a, (int)binfo->rbatchsize.b,
+            (binfo->ibatchsize.type == RND_NORMAL)?"Norm":"Uniform",
+            (int)binfo->ibatchsize.a, (int)binfo->ibatchsize.b);
     lprintf("write batch size: %s(%d,%d)\n",
             (binfo->wbatchsize.type == RND_NORMAL)?"Norm":"Uniform",
             (int)binfo->wbatchsize.a, (int)binfo->wbatchsize.b);
@@ -2192,6 +2266,7 @@ struct bench_info get_benchinfo()
     sprintf(dbname, "unknown");
 #endif
 
+    memset(&binfo, 0x0, sizeof(binfo));
     binfo.ndocs = iniparser_getint(cfg, (char*)"document:ndocs", 10000);
     binfo.dbname = dbname;
     binfo.filename = filename;
@@ -2294,6 +2369,7 @@ struct bench_info get_benchinfo()
 
     // thread information
     binfo.nreaders = iniparser_getint(cfg, (char*)"threads:readers", 0);
+    binfo.niterators = iniparser_getint(cfg, (char*)"threads:iterators", 0);
     binfo.nwriters = iniparser_getint(cfg, (char*)"threads:writers", 0);
     binfo.reader_ops = iniparser_getint(cfg, (char*)"threads:reader_ops", 0);
     binfo.writer_ops = iniparser_getint(cfg, (char*)"threads:writer_ops", 0);
@@ -2335,6 +2411,12 @@ struct bench_info get_benchinfo()
         binfo.rbatchsize.b =
             iniparser_getint(cfg, (char*)"operation:read_batchsize_"
                                          "standard_deviation", 1);
+        binfo.ibatchsize.type = RND_NORMAL;
+        binfo.ibatchsize.a =
+            iniparser_getint(cfg, (char*)"operation:iterate_batchsize_median", 1000);
+        binfo.ibatchsize.b =
+            iniparser_getint(cfg, (char*)"operation:iterate_batchsize_"
+                                         "standard_deviation", 100);
         binfo.wbatchsize.type = RND_NORMAL;
         binfo.wbatchsize.a =
             iniparser_getint(cfg, (char*)"operation:write_batchsize_"
@@ -2351,6 +2433,13 @@ struct bench_info get_benchinfo()
         binfo.rbatchsize.b =
             iniparser_getint(cfg, (char*)"operation:read_batchsize_"
                                          "upper_bound", 5);
+        binfo.ibatchsize.type = RND_UNIFORM;
+        binfo.ibatchsize.a =
+            iniparser_getint(cfg, (char*)"operation:iterate_batchsize_"
+                                         "lower_bound", 500);
+        binfo.ibatchsize.b =
+            iniparser_getint(cfg, (char*)"operation:iterate_batchsize_"
+                                         "upper_bound", 1500);
         binfo.wbatchsize.type = RND_UNIFORM;
         binfo.wbatchsize.a =
             iniparser_getint(cfg, (char*)"operation:write_batchsize_"

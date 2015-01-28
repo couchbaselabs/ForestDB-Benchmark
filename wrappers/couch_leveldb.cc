@@ -322,6 +322,51 @@ couchstore_error_t couchstore_open_document(Db *db,
 }
 
 LIBCOUCHSTORE_API
+couchstore_error_t couchstore_walk_id_tree(Db *db,
+                                           const sized_buf* startDocID,
+                                           couchstore_docinfos_options options,
+                                           couchstore_walk_tree_callback_fn callback,
+                                           void *ctx)
+{
+    int c_ret = 0;
+    leveldb_iterator_t *lit;
+    leveldb_readoptions_t *read_options;
+    DocInfo doc_info;
+    Doc doc;
+    char *keyptr, *valueptr;
+    size_t valuelen;
+
+    read_options = leveldb_readoptions_create();
+    lit = leveldb_create_iterator(db->db, read_options);
+    leveldb_iter_seek(lit, startDocID->buf, startDocID->size);
+
+    while (leveldb_iter_valid(lit)) {
+        keyptr = (char*)leveldb_iter_key(lit, &doc_info.id.size);
+        valueptr = (char*)leveldb_iter_value(lit, &valuelen);
+
+        doc_info.id.buf = (char *)malloc(doc_info.id.size);
+        memcpy(doc_info.id.buf, keyptr, doc_info.id.size);
+        doc.data.buf = (char *)malloc(valuelen);
+        memcpy(doc.data.buf, valueptr, valuelen);
+
+        c_ret = callback(db, 0, &doc_info, 0, NULL, ctx);
+
+        free(doc_info.id.buf);
+        free(doc.data.buf);
+
+        if (c_ret != 0) {
+            break;
+        }
+
+        leveldb_iter_next(lit);
+    }
+
+    leveldb_iter_destroy(lit);
+
+    return COUCHSTORE_SUCCESS;
+}
+
+LIBCOUCHSTORE_API
 void couchstore_free_document(Doc *doc)
 {
     if (doc->id.buf) free(doc->id.buf);

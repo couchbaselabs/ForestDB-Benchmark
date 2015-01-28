@@ -346,6 +346,48 @@ couchstore_error_t couchstore_open_document(Db *db,
 }
 
 LIBCOUCHSTORE_API
+couchstore_error_t couchstore_walk_id_tree(Db *db,
+                                           const sized_buf* startDocID,
+                                           couchstore_docinfos_options options,
+                                           couchstore_walk_tree_callback_fn callback,
+                                           void *ctx)
+{
+    int c_ret = 0;
+    rocksdb::Iterator* rit = db->db->NewIterator(rocksdb::ReadOptions());
+    rocksdb::Slice startkey = rocksdb::Slice(startDocID->buf, startDocID->size);
+    rocksdb::Slice keyptr, valueptr;
+    DocInfo doc_info;
+    Doc doc;
+
+    rit->Seek(startkey);
+
+    while (rit->Valid()) {
+        keyptr = rit->key();
+        valueptr = rit->value();
+
+        doc_info.id.buf = (char *)malloc(keyptr.size());
+        memcpy(doc_info.id.buf, keyptr.data(), keyptr.size());
+        doc.data.buf = (char *)malloc(valueptr.size());
+        memcpy(doc.data.buf, valueptr.data(), valueptr.size());
+
+        c_ret = callback(db, 0, &doc_info, 0, NULL, ctx);
+
+        free(doc_info.id.buf);
+        free(doc.data.buf);
+
+        if (c_ret != 0) {
+            break;
+        }
+
+        rit->Next();
+    }
+
+    delete rit;
+
+    return COUCHSTORE_SUCCESS;
+}
+
+LIBCOUCHSTORE_API
 void couchstore_free_document(Doc *doc)
 {
     if (doc->id.buf) free(doc->id.buf);

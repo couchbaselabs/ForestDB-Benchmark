@@ -316,6 +316,48 @@ couchstore_error_t couchstore_open_document(Db *db,
 }
 
 LIBCOUCHSTORE_API
+couchstore_error_t couchstore_walk_id_tree(Db *db,
+                                           const sized_buf* startDocID,
+                                           couchstore_docinfos_options options,
+                                           couchstore_walk_tree_callback_fn callback,
+                                           void *ctx)
+{
+    int ret;
+    int c_ret = 0;
+    DocInfo doc_info;
+    Doc doc;
+    WT_ITEM item;
+
+    item.data = startDocID->buf;
+    item.size = startDocID->size;
+    db->cursor->set_key(db->cursor, &item);
+    ret = db->cursor->search(db->cursor);
+    assert(ret == 0);
+
+    do {
+        db->cursor->get_key(db->cursor, &item);
+        doc_info.id.buf = (char *)malloc(item.size);
+        memcpy(doc_info.id.buf, item.data, item.size);
+
+        db->cursor->get_value(db->cursor, &item);
+        doc.data.buf = (char *)malloc(item.size);
+        memcpy(doc.data.buf, item.data, item.size);
+
+        c_ret = callback(db, 0, &doc_info, 0, NULL, ctx);
+
+        free(doc_info.id.buf);
+        free(doc.data.buf);
+
+        if (c_ret != 0) {
+            break;
+        }
+
+    } while ((ret = db->cursor->next(db->cursor)) == 0);
+
+    return COUCHSTORE_SUCCESS;
+}
+
+LIBCOUCHSTORE_API
 void couchstore_free_document(Doc *doc)
 {
     if (doc->id.buf) free(doc->id.buf);

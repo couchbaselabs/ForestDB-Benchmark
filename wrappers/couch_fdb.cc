@@ -127,6 +127,7 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
         config.auto_commit = false;
     }
     config.prefetch_duration = 30;
+    config.multi_kv_instances = false;
 
     kvs_config = fdb_get_default_kvs_config();
 
@@ -437,6 +438,45 @@ couchstore_error_t couchstore_open_document(Db *db,
     free(_doc.meta);
 
     return ret;
+}
+
+LIBCOUCHSTORE_API
+couchstore_error_t couchstore_walk_id_tree(Db *db,
+                                           const sized_buf* startDocID,
+                                           couchstore_docinfos_options options,
+                                           couchstore_walk_tree_callback_fn callback,
+                                           void *ctx)
+{
+    int c_ret = 0;
+    fdb_iterator *fit = NULL;
+    fdb_status fs;
+    fdb_doc *doc;
+    DocInfo doc_info;
+
+    fs = fdb_iterator_init(db->fdb, &fit, startDocID->buf, startDocID->size, NULL, 0, 0x0);
+    if (fs != FDB_RESULT_SUCCESS) {
+        return COUCHSTORE_ERROR_DOC_NOT_FOUND;
+    }
+
+    do {
+        doc = NULL;
+        fs = fdb_iterator_get(fit, &doc);
+        if (fs == FDB_RESULT_SUCCESS) {
+            doc_info.id.buf = (char *)doc->key;
+            doc_info.id.size = doc->keylen;
+            c_ret = callback(db, 0, &doc_info, 0, NULL, ctx);
+            fs = fdb_doc_free(doc);
+            if (c_ret != 0) {
+                break;
+            }
+        } else {
+            break;
+        }
+    } while (fdb_iterator_next(fit) != FDB_RESULT_ITERATOR_FAIL);
+
+    fs = fdb_iterator_close(fit);
+
+    return COUCHSTORE_SUCCESS;
 }
 
 LIBCOUCHSTORE_API
