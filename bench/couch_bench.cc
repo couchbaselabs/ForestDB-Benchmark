@@ -47,6 +47,7 @@ struct bench_info {
 
     uint64_t wbs_init; /* write buffer size for bulk load */
     uint64_t wbs_bench; /* write buffer size for normal benchmark */
+    uint64_t bloom_bpk; /* bloom filter bits per key */
     uint64_t fdb_wal; /* WAL size for fdb */
     int wt_type; /* WiredTiger: B+tree or LSM-tree? */
 
@@ -1245,6 +1246,7 @@ couchstore_error_t couchstore_set_wal_size(size_t size);
 couchstore_error_t couchstore_set_wbs_size(uint64_t size);
 couchstore_error_t couchstore_set_idx_type(int type);
 couchstore_error_t couchstore_set_sync(Db *db, int sync);
+couchstore_error_t couchstore_set_bloom(int bits_per_key);
 
 int _does_file_exist(char *filename) {
     struct stat st;
@@ -1388,9 +1390,11 @@ void do_bench(struct bench_info *binfo)
     spaces[80] = 0;
 
 #if !defined(__COUCH_BENCH)
+    // all but Couchstore: set buffer cache size
     couchstore_set_cache(binfo->cache_size);
 #endif
 #if defined(__FDB_BENCH)
+    // ForestDB: set compaction mode, threshold, WAL size
     couchstore_set_compaction(binfo->auto_compaction, binfo->compact_thres);
     couchstore_set_wal_size(binfo->fdb_wal);
 #endif
@@ -1398,6 +1402,10 @@ void do_bench(struct bench_info *binfo)
     // WiredTiger & ForestDB: set compaction period
     couchstore_set_chk_period(binfo->compact_period);
 #endif
+#if defined(__LEVEL_BENCH) || defined(__ROCKS_BENCH)
+    // LevelDB, RocksDB: set bloom filter bits per key
+    couchstore_set_bloom(binfo->bloom_bpk);
+#endif // __LEVEL_BENCH || __ROCKS_BENCH
 
     if (binfo->initialize) {
         // === initialize and populate files ========
@@ -1447,14 +1455,15 @@ void do_bench(struct bench_info *binfo)
         stopwatch_start(&sw);
         population(db, binfo);
 
-#ifdef __PRINT_IOSTAT
-#if defined(__LEVEL_BENCH) || defined(__ROCKS_BENCH)
+#if  defined(__PRINT_IOSTAT) && \
+    (defined(__LEVEL_BENCH) || defined(__ROCKS_BENCH))
+        // Linux + (LevelDB or RocksDB): wait for background compaction
         gap = stopwatch_stop(&sw);
         LOG_PRINT_TIME(gap, " sec elapsed\n");
         print_proc_io_stat(cmd, 1);
         _wait_leveldb_compaction(binfo, db);
-#endif // __LEVEL_BENCH || __ROCKS_BENCH
-#endif // __PRINT_IOSTAT
+#endif // __PRINT_IOSTAT && (__LEVEL_BENCH || __ROCKS_BENCH)
+
         if (binfo->sync_write) {
             lprintf("flushing disk buffer.. "); fflush(stdout);
             sprintf(cmd, "sync");
@@ -1502,7 +1511,7 @@ void do_bench(struct bench_info *binfo)
 #if defined(__LEVEL_BENCH) || defined(__ROCKS_BENCH)
     // LevelDB, RocksDB: reset write buffer size
     couchstore_set_wbs_size(binfo->wbs_bench);
-#endif
+#endif // __LEVEL_BENCH || __ROCKS_BENCH
 #if defined(__FDB_BENCH)
     // ForestDB:
     // clear wal_flush_before_commit flag (0x1)
@@ -2123,6 +2132,9 @@ void _print_benchinfo(struct bench_info *binfo)
         print_filesize_approx(binfo->wbs_init, tempstr));
     lprintf("%s (bench)\n",
         print_filesize_approx(binfo->wbs_bench, tempstr));
+    if (binfo->bloom_bpk) {
+        lprintf("bloom filter enabled (%d bits per key)\n", (int)binfo->bloom_bpk);
+    }
 #endif
 #if defined(__FDB_BENCH)
     lprintf("WAL size: %" _F64"\n", binfo->fdb_wal);
@@ -2291,13 +2303,19 @@ struct bench_info get_benchinfo()
     binfo.auto_compaction = 0;
 #endif
 
+    // write buffer size for LevelDB & RocksDB
     binfo.wbs_init =
         iniparser_getint(cfg, (char*)"db_config:wbs_init_MB", 4);
     binfo.wbs_init *= (1024*1024);
     binfo.wbs_bench =
         iniparser_getint(cfg, (char*)"db_config:wbs_bench_MB", 4);
     binfo.wbs_bench *= (1024*1024);
+    // bloom filter bit for LevelDB & RocksDB
+    binfo.bloom_bpk =
+        iniparser_getint(cfg, (char*)"db_config:bloom_bits_per_key", 0);
+    // WAL size for ForestDB
     binfo.fdb_wal = iniparser_getint(cfg, (char*)"db_config:fdb_wal", 4096);
+    // indexing type for WiredTiger
     str = iniparser_getstring(cfg, (char*)"db_config:wt_type", (char*)"btree");
     if (str[0] == 'b' || str[0] == 'B') {
         binfo.wt_type = 0; /* b-tree */

@@ -8,6 +8,8 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
 #include "rocksdb/table.h"
+#include "rocksdb/filter_policy.h"
+#include "rocksdb/table.h"
 #include "couch_db.h"
 
 #define METABUF_MAXLEN (256)
@@ -22,6 +24,8 @@ struct _db {
 
 static uint64_t cache_size = 0;
 static uint64_t wbs_size = 4*1024*1024;
+static int bloom_bits_per_key = 0;
+
 couchstore_error_t couchstore_set_cache(uint64_t size)
 {
     cache_size = size;
@@ -29,6 +33,10 @@ couchstore_error_t couchstore_set_cache(uint64_t size)
 }
 couchstore_error_t couchstore_set_wbs_size(uint64_t size) {
     wbs_size = size;
+    return COUCHSTORE_SUCCESS;
+}
+couchstore_error_t couchstore_set_bloom(int bits_per_key) {
+    bloom_bits_per_key = bits_per_key;
     return COUCHSTORE_SUCCESS;
 }
 
@@ -63,9 +71,15 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
     ppdb->options->max_write_buffer_number = 8;
     ppdb->options->write_buffer_size = wbs_size;
 
-    if (cache_size) {
+    if (cache_size || bloom_bits_per_key) {
         rocksdb::BlockBasedTableOptions table_options;
-        table_options.block_cache = rocksdb::NewLRUCache(cache_size);
+        if (cache_size) {
+            table_options.block_cache = rocksdb::NewLRUCache(cache_size);
+        }
+        if (bloom_bits_per_key) {
+            table_options.filter_policy.reset(
+                rocksdb::NewBloomFilterPolicy(bloom_bits_per_key));
+        }
         ppdb->options->table_factory.reset(
             rocksdb::NewBlockBasedTableFactory(table_options));
     }

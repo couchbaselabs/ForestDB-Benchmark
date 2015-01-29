@@ -20,6 +20,8 @@ struct _db {
 
 static uint64_t cache_size = 0;
 static uint64_t wbs_size = 4*1024*1024;
+static int bloom_bits_per_key = 0;
+
 couchstore_error_t couchstore_set_cache(uint64_t size)
 {
     cache_size = size;
@@ -27,6 +29,10 @@ couchstore_error_t couchstore_set_cache(uint64_t size)
 }
 couchstore_error_t couchstore_set_wbs_size(uint64_t size) {
     wbs_size = size;
+    return COUCHSTORE_SUCCESS;
+}
+couchstore_error_t couchstore_set_bloom(int bits_per_key) {
+    bloom_bits_per_key = bits_per_key;
     return COUCHSTORE_SUCCESS;
 }
 
@@ -47,6 +53,7 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
 {
     Db *ppdb;
     char *err;
+    leveldb_filterpolicy_t *bloom;
 
     *pDb = (Db*)malloc(sizeof(Db));
     ppdb = *pDb;
@@ -58,6 +65,11 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
     leveldb_options_set_create_if_missing(ppdb->options, 1);
     leveldb_options_set_compression(ppdb->options, 0);
     leveldb_options_set_write_buffer_size(ppdb->options, wbs_size);
+    if (bloom_bits_per_key) {
+        // set bloom filter
+        bloom = leveldb_filterpolicy_create_bloom(bloom_bits_per_key);
+        leveldb_options_set_filter_policy(ppdb->options, bloom);
+    }
 
     if (cache_size) {
         leveldb_options_set_cache(ppdb->options,
