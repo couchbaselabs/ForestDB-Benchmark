@@ -2341,7 +2341,7 @@ struct bench_info get_benchinfo()
         iniparser_getint(cfg, (char*)"db_config:bloom_bits_per_key", 0);
     // compaction style for RocksDB
     str = iniparser_getstring(cfg, (char*)"db_config:compaction_style",
-                                   "level");
+                                   (char*)"level");
     if (str[0] == 'F' || str[0] == 'f') {
         // FIFO style
         binfo.compaction_style = 2;
