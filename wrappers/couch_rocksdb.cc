@@ -25,6 +25,7 @@ struct _db {
 static uint64_t cache_size = 0;
 static uint64_t wbs_size = 4*1024*1024;
 static int bloom_bits_per_key = 0;
+static int compaction_style = 0;
 
 couchstore_error_t couchstore_set_cache(uint64_t size)
 {
@@ -37,6 +38,10 @@ couchstore_error_t couchstore_set_wbs_size(uint64_t size) {
 }
 couchstore_error_t couchstore_set_bloom(int bits_per_key) {
     bloom_bits_per_key = bits_per_key;
+    return COUCHSTORE_SUCCESS;
+}
+couchstore_error_t couchstore_set_compaction_style(int style) {
+    compaction_style = style;
     return COUCHSTORE_SUCCESS;
 }
 
@@ -70,6 +75,7 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
     ppdb->options->max_background_flushes = 8;
     ppdb->options->max_write_buffer_number = 8;
     ppdb->options->write_buffer_size = wbs_size;
+    ppdb->options->compaction_style = rocksdb::CompactionStyle(compaction_style);
 
     if (cache_size || bloom_bits_per_key) {
         rocksdb::BlockBasedTableOptions table_options;

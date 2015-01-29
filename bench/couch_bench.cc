@@ -48,6 +48,7 @@ struct bench_info {
     uint64_t wbs_init; /* write buffer size for bulk load */
     uint64_t wbs_bench; /* write buffer size for normal benchmark */
     uint64_t bloom_bpk; /* bloom filter bits per key */
+    uint8_t compaction_style; /* compaction style */
     uint64_t fdb_wal; /* WAL size for fdb */
     int wt_type; /* WiredTiger: B+tree or LSM-tree? */
 
@@ -1247,6 +1248,7 @@ couchstore_error_t couchstore_set_wbs_size(uint64_t size);
 couchstore_error_t couchstore_set_idx_type(int type);
 couchstore_error_t couchstore_set_sync(Db *db, int sync);
 couchstore_error_t couchstore_set_bloom(int bits_per_key);
+couchstore_error_t couchstore_set_compaction_style(int style);
 
 int _does_file_exist(char *filename) {
     struct stat st;
@@ -1406,6 +1408,13 @@ void do_bench(struct bench_info *binfo)
     // LevelDB, RocksDB: set bloom filter bits per key
     couchstore_set_bloom(binfo->bloom_bpk);
 #endif // __LEVEL_BENCH || __ROCKS_BENCH
+#if defined(__ROCKS_BENCH)
+    // RocksDB: set compaction style
+    if (binfo->compaction_style) {
+        couchstore_set_compaction_style(binfo->compaction_style);
+    }
+#endif // __ROCKS_BENCH
+
 
     if (binfo->initialize) {
         // === initialize and populate files ========
@@ -2135,13 +2144,30 @@ void _print_benchinfo(struct bench_info *binfo)
     if (binfo->bloom_bpk) {
         lprintf("bloom filter enabled (%d bits per key)\n", (int)binfo->bloom_bpk);
     }
+#endif // __LEVEL_BENCH || __ROCKS_BENCH
+
+#if defined(__ROCKS_BENCH)
+    lprintf("compaction style: ");
+    switch(binfo->compaction_style) {
+    case 0:
+        lprintf("level (default)\n");
+        break;
+    case 1:
+        lprintf("universal\n");
+        break;
+    case 2:
+        lprintf("FIFO\n");
+        break;
+    }
 #endif
+
 #if defined(__FDB_BENCH)
     lprintf("WAL size: %" _F64"\n", binfo->fdb_wal);
-#endif
+#endif // __FDB_BENCH
+
 #if defined(__WT_BENCH)
     lprintf("indexing: %s\n", (binfo->wt_type==0)?"b-tree":"lsm-tree");
-#endif
+#endif // __WT_BENCH
 
     lprintf("key length: %s(%d,%d) / ",
             (binfo->keylen.type == RND_NORMAL)?"Norm":"Uniform",
@@ -2313,6 +2339,19 @@ struct bench_info get_benchinfo()
     // bloom filter bit for LevelDB & RocksDB
     binfo.bloom_bpk =
         iniparser_getint(cfg, (char*)"db_config:bloom_bits_per_key", 0);
+    // compaction style for RocksDB
+    str = iniparser_getstring(cfg, (char*)"db_config:compaction_style",
+                                   "level");
+    if (str[0] == 'F' || str[0] == 'f') {
+        // FIFO style
+        binfo.compaction_style = 2;
+    } else if (str[0] == 'U' || str[0] == 'u') {
+        // universal style
+        binfo.compaction_style = 1;
+    } else {
+        // level style (default)
+        binfo.compaction_style = 0;
+    }
     // WAL size for ForestDB
     binfo.fdb_wal = iniparser_getint(cfg, (char*)"db_config:fdb_wal", 4096);
     // indexing type for WiredTiger
