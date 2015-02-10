@@ -25,6 +25,8 @@ static int c_auto = 1;
 static size_t c_threshold = 30;
 static size_t wal_size = 4096;
 static size_t c_period = 15;
+static int compression = 0;
+
 couchstore_error_t couchstore_set_flags(uint64_t flags) {
     config_flags = flags;
     return COUCHSTORE_SUCCESS;
@@ -49,6 +51,10 @@ couchstore_error_t couchstore_close_conn() {
 }
 couchstore_error_t couchstore_set_chk_period(size_t seconds) {
     c_period = seconds;
+    return COUCHSTORE_SUCCESS;
+}
+couchstore_error_t couchstore_set_compression(int opt) {
+    compression = opt;
     return COUCHSTORE_SUCCESS;
 }
 
@@ -115,7 +121,7 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
     } else {
         config.durability_opt = FDB_DRB_ASYNC;
     }
-    config.compress_document_body = false;
+    config.compress_document_body = (compression)?true:false;
     if (config_flags & 0x1) {
         config.wal_flush_before_commit = true;
     } else {

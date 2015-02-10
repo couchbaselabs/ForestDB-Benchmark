@@ -51,6 +51,8 @@ struct bench_info {
     uint8_t compaction_style; /* compaction style */
     uint64_t fdb_wal; /* WAL size for fdb */
     int wt_type; /* WiredTiger: B+tree or LSM-tree? */
+    int compression;
+    int compressibility;
 
     uint32_t latency_rate; // sampling rate for latency monitoring
     uint32_t latency_max; // max samples for latency monitoring
@@ -239,16 +241,39 @@ void _create_doc(struct bench_info *binfo,
     doc->data.size = (size_t)((doc->data.size+1) / (sizeof(uint64_t)*1)) *
                      (sizeof(uint64_t)*1);
     if (!doc->data.buf) {
-        int max_bodylen;
+        int max_bodylen, avg_bodylen;
+        int i, abt_array_size, rnd_str_len;
+        char *abt_array = (char*)"abcdefghijklmnopqrstuvwxyz"
+                                 "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_";
+        abt_array_size = strlen(abt_array);
+
         if (binfo->bodylen.type == RND_NORMAL) {
             max_bodylen = binfo->bodylen.a + binfo->bodylen.b * 6;
+            avg_bodylen = binfo->bodylen.a;
         } else {
             // uniform
             max_bodylen = binfo->bodylen.b + 16;
+            avg_bodylen = (binfo->bodylen.a + binfo->bodylen.b)/2;
         }
         doc->data.buf = (char *)malloc(max_bodylen);
+
+        if (binfo->compressibility == 0) {
+            // all random string
+            rnd_str_len = max_bodylen;
+        } else if (binfo->compressibility == 100) {
+            // repetition of same character
+            rnd_str_len = 0;
+        } else {
+            // mixed
+            rnd_str_len = avg_bodylen * (100 - binfo->compressibility);
+            rnd_str_len /= 100;
+        }
+
+        memset(doc->data.buf, 'x', max_bodylen);
+        for (i=0;i<rnd_str_len;++i){
+            doc->data.buf[i] = abt_array[rand() % abt_array_size];
+        }
     }
-    memset(doc->data.buf, 'x', doc->data.size);
     memcpy(doc->data.buf + doc->data.size - 5, (void*)"<end>", 5);
     snprintf(doc->data.buf, doc->data.size,
              "idx# %d, body of %.*s, key len %d, body len %d",
@@ -818,6 +843,8 @@ int iterate_callback(Db *db,
     }
 }
 
+#define MAX_BATCHSIZE (65536)
+
 void * bench_thread(void *voidargs)
 {
     struct bench_thread_args *args = (struct bench_thread_args *)voidargs;
@@ -833,7 +860,7 @@ void * bench_thread(void *voidargs)
     uint64_t expected_us, elapsed_us, elapsed_sec;
     uint64_t cur_sample;
     Db **db;
-    Doc *rq_doc;
+    Doc *rq_doc = NULL;
     sized_buf rq_id;
     struct rndinfo write_mode_random, op_dist;
     struct bench_info *binfo = args->binfo;
@@ -845,6 +872,22 @@ void * bench_thread(void *voidargs)
     struct stopwatch sw, sw_monitor, sw_latency;
     struct timeval gap;
     couchstore_error_t err;
+
+#if defined(__FDB_BENCH) || defined(__WT_BENCH)
+    DocInfo *rq_info = NULL;
+#else
+    int file_doccount[args->binfo->nfiles], c;
+    Doc **rq_doc_arr[args->binfo->nfiles];
+    DocInfo **rq_info_arr[args->binfo->nfiles];
+    batchsize = MAX_BATCHSIZE;
+    for (i=0; i<binfo->nfiles;++i){
+        rq_doc_arr[i] = (Doc **)malloc(sizeof(Doc*) * batchsize);
+        rq_info_arr[i] = (DocInfo **)
+                         malloc(sizeof(DocInfo*) * batchsize);
+        memset(rq_doc_arr[i], 0, sizeof(Doc*) * batchsize);
+        memset(rq_info_arr[i], 0, sizeof(DocInfo*) * batchsize);
+    }
+#endif
 
     db = args->db;
 
@@ -1035,12 +1078,9 @@ void * bench_thread(void *voidargs)
 
 #if defined(__FDB_BENCH) || defined(__WT_BENCH)
             // initialize
-            DocInfo *rq_info;
             memset(commit_mask, 0, sizeof(int) * binfo->nfiles);
 
             for (j=0;j<batchsize;++j){
-                rq_doc = NULL;
-                rq_info = NULL;
 
                 BDR_RNG_NEXTPAIR;
                 r = get_random(&op_dist, rngz, rngz2);
@@ -1055,11 +1095,6 @@ void * bench_thread(void *voidargs)
 
                 // set mask
                 commit_mask[curfile_no] = 1;
-
-                free(rq_doc->id.buf);
-                free(rq_doc->data.buf);
-                free(rq_doc);
-                free(rq_info);
             }
 
             if (binfo->sync_write) {
@@ -1070,16 +1105,8 @@ void * bench_thread(void *voidargs)
                 }
             }
 #else
-            int file_doccount[args->binfo->nfiles], c;
-            Doc **rq_doc_arr[args->binfo->nfiles];
-            DocInfo **rq_info_arr[args->binfo->nfiles];
 
             for (i=0; i<binfo->nfiles;++i){
-                rq_doc_arr[i] = (Doc **)malloc(sizeof(Doc*) * batchsize);
-                rq_info_arr[i] = (DocInfo **)
-                                 malloc(sizeof(DocInfo*) * batchsize);
-                memset(rq_doc_arr[i], 0, sizeof(Doc*) * batchsize);
-                memset(rq_info_arr[i], 0, sizeof(DocInfo*) * batchsize);
                 file_doccount[i] = 0;
             }
 
@@ -1110,15 +1137,7 @@ void * bench_thread(void *voidargs)
 #if defined(__COUCH_BENCH)
                     err = couchstore_commit(db[curfile_no]);
 #endif
-                    for (j=0;j<file_doccount[i];++j){
-                        free(rq_doc_arr[i][j]->id.buf);
-                        free(rq_doc_arr[i][j]->data.buf);
-                        free(rq_doc_arr[i][j]);
-                        free(rq_info_arr[i][j]);
-                    }
                 }
-                free(rq_doc_arr[i]);
-                free(rq_info_arr[i]);
             }
 #endif
             op_w_cum += batchsize;
@@ -1146,6 +1165,7 @@ void * bench_thread(void *voidargs)
 
                 rq_doc->id.buf = NULL;
                 couchstore_free_document(rq_doc);
+                rq_doc = NULL;
                 free(rq_id.buf);
             }
             op_r_cum += batchsize;
@@ -1188,6 +1208,33 @@ void * bench_thread(void *voidargs)
             spin_unlock(&args->b_stat->lock);
         }
     }
+
+
+#if defined(__FDB_BENCH) || defined(__WT_BENCH)
+    if (rq_doc) {
+        free(rq_doc->id.buf);
+        free(rq_doc->data.buf);
+        free(rq_doc);
+    }
+    if (rq_info) {
+        free(rq_info);
+    }
+#else
+    for (i=0;i<binfo->nfiles;++i) {
+        for (j=0;j<MAX_BATCHSIZE;++j){
+            if (rq_doc_arr[i][j]) {
+                free(rq_doc_arr[i][j]->id.buf);
+                free(rq_doc_arr[i][j]->data.buf);
+                free(rq_doc_arr[i][j]);
+            }
+            if (rq_info_arr[i][j]) {
+                free(rq_info_arr[i][j]);
+            }
+        }
+        free(rq_doc_arr[i]);
+        free(rq_info_arr[i]);
+    }
+#endif
 
     return NULL;
 }
@@ -1249,6 +1296,7 @@ couchstore_error_t couchstore_set_idx_type(int type);
 couchstore_error_t couchstore_set_sync(Db *db, int sync);
 couchstore_error_t couchstore_set_bloom(int bits_per_key);
 couchstore_error_t couchstore_set_compaction_style(int style);
+couchstore_error_t couchstore_set_compression(int opt);
 
 int _does_file_exist(char *filename) {
     struct stat st;
@@ -1394,6 +1442,8 @@ void do_bench(struct bench_info *binfo)
 #if !defined(__COUCH_BENCH)
     // all but Couchstore: set buffer cache size
     couchstore_set_cache(binfo->cache_size);
+    // set compression option
+    couchstore_set_compression(binfo->compression);
 #endif
 #if defined(__FDB_BENCH)
     // ForestDB: set compaction mode, threshold, WAL size
@@ -2169,6 +2219,11 @@ void _print_benchinfo(struct bench_info *binfo)
     lprintf("indexing: %s\n", (binfo->wt_type==0)?"b-tree":"lsm-tree");
 #endif // __WT_BENCH
 
+    if (binfo->compression) {
+        lprintf("compression is enabled (compressibility %d %%)\n",
+                binfo->compressibility);
+    }
+
     lprintf("key length: %s(%d,%d) / ",
             (binfo->keylen.type == RND_NORMAL)?"Norm":"Uniform",
             (int)binfo->keylen.a, (int)binfo->keylen.b);
@@ -2362,6 +2417,15 @@ struct bench_info get_benchinfo()
         binfo.wt_type = 1; /* lsm-tree */
     }
 
+    // compression
+    str = iniparser_getstring(cfg, (char*)"db_config:compression", (char*)"false");
+    if (str[0] == 't' || str[0] == 'T' || str[0] == 'e' || str[0] == 'E') {
+        // enabled
+        binfo.compression = 1;
+    } else {
+        binfo.compression = 0;
+    }
+
     str = iniparser_getstring(cfg, (char*)"db_file:filename",
                                    (char*)"./dummy");
     strcpy(binfo.filename, str);
@@ -2434,6 +2498,7 @@ struct bench_info get_benchinfo()
     // create keygen structure
     _set_keygen(&binfo);
 
+    // body length
     str = iniparser_getstring(cfg, (char*)"body_length:distribution",
                                    (char*)"normal");
     if (str[0] == 'n') {
@@ -2448,6 +2513,14 @@ struct bench_info get_benchinfo()
             iniparser_getint(cfg, (char*)"body_length:lower_bound", 448);
         binfo.bodylen.b =
             iniparser_getint(cfg, (char*)"body_length:upper_bound", 576);
+    }
+    binfo.compressibility =
+        iniparser_getint(cfg, (char*)"body_length:compressibility", 100);
+    if (binfo.compressibility > 100) {
+        binfo.compressibility = 100;
+    }
+    if (binfo.compressibility < 0) {
+        binfo.compressibility = 0;
     }
 
     binfo.nbatches = iniparser_getint(cfg, (char*)"operation:nbatches", 0);

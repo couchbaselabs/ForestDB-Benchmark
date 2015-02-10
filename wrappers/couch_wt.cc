@@ -23,6 +23,7 @@ static WT_CONNECTION *conn = NULL;
 static uint64_t cache_size = 0;
 static int indexing_type = 0;
 static size_t c_period = 15;
+static int compression = 0;
 
 couchstore_error_t couchstore_set_cache(uint64_t size) {
     cache_size = size;
@@ -34,6 +35,10 @@ couchstore_error_t couchstore_set_idx_type(int type) {
 }
 couchstore_error_t couchstore_set_chk_period(size_t seconds) {
     c_period = seconds;
+    return COUCHSTORE_SUCCESS;
+}
+couchstore_error_t couchstore_set_compression(int opt) {
+    compression = opt;
     return COUCHSTORE_SUCCESS;
 }
 
@@ -54,6 +59,9 @@ couchstore_error_t couchstore_open_conn(const char *filename)
                     "cache_size=%" _F64,
                     c_period,
                     cache_size);
+    if (compression) {
+        strcat(config, ",extensions=[libwiredtiger_snappy.so]");
+    }
     // create directory if not exist
     fd = open(filename, O_RDONLY, 0666);
     if (fd == -1) {
@@ -130,6 +138,9 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
         sprintf(table_config,
                 "split_pct=100,leaf_item_max=1KB,"
                 "internal_page_max=4KB,leaf_page_max=4KB");
+    }
+    if (compression) {
+        strcat(table_config, ",block_compressor=snappy");
     }
 
     ret = conn->open_session(conn, NULL, NULL, &ppdb->session);

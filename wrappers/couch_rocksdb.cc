@@ -26,6 +26,7 @@ static uint64_t cache_size = 0;
 static uint64_t wbs_size = 4*1024*1024;
 static int bloom_bits_per_key = 0;
 static int compaction_style = 0;
+static int compression = 0;
 
 couchstore_error_t couchstore_set_cache(uint64_t size)
 {
@@ -44,6 +45,11 @@ couchstore_error_t couchstore_set_compaction_style(int style) {
     compaction_style = style;
     return COUCHSTORE_SUCCESS;
 }
+couchstore_error_t couchstore_set_compression(int opt) {
+    compression = opt;
+    return COUCHSTORE_SUCCESS;
+}
+
 
 LIBCOUCHSTORE_API
 couchstore_error_t couchstore_open_db(const char *filename,
@@ -69,7 +75,9 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
 
     ppdb->options = new rocksdb::Options();
     ppdb->options->create_if_missing = true;
-    ppdb->options->compression = rocksdb::kNoCompression;
+    if (!compression) {
+        ppdb->options->compression = rocksdb::kNoCompression;
+    }
 
     ppdb->options->max_background_compactions = 8;
     ppdb->options->max_background_flushes = 8;
