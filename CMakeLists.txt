@@ -42,6 +42,7 @@ add_executable(fdb_bench
                utils/crc32.cc
                utils/memleak.cc
                utils/zipfian_random.cc
+               utils/keyloader.cc
                utils/keygen.cc)
 target_link_libraries(fdb_bench ${PTHREAD_LIB} ${LIBM} ${LIBSNAPPY} ${LIBFDB})
 set_target_properties(fdb_bench PROPERTIES COMPILE_FLAGS "-D__FDB_BENCH")
@@ -55,6 +56,7 @@ add_executable(couch_bench
                utils/crc32.cc
                utils/memleak.cc
                utils/zipfian_random.cc
+               utils/keyloader.cc
                utils/keygen.cc)
 target_link_libraries(couch_bench ${PTHREAD_LIB} ${LIBM} ${LIBSNAPPY} ${LIBCOUCH})
 set_target_properties(couch_bench PROPERTIES COMPILE_FLAGS "-D__COUCH_BENCH")
@@ -69,6 +71,7 @@ add_executable(leveldb_bench
                utils/crc32.cc
                utils/memleak.cc
                utils/zipfian_random.cc
+               utils/keyloader.cc
                utils/keygen.cc)
 target_link_libraries(leveldb_bench ${PTHREAD_LIB} ${LIBM} ${LIBSNAPPY} ${LIBLDB})
 set_target_properties(leveldb_bench PROPERTIES COMPILE_FLAGS "-D__LEVEL_BENCH")
@@ -83,6 +86,7 @@ add_executable(wt_bench
                utils/crc32.cc
                utils/memleak.cc
                utils/zipfian_random.cc
+               utils/keyloader.cc
                utils/keygen.cc)
 target_link_libraries(wt_bench ${PTHREAD_LIB} ${LIBM} ${LIBSNAPPY} ${LIBWT})
 set_target_properties(wt_bench PROPERTIES COMPILE_FLAGS "-D__WT_BENCH")
@@ -97,6 +101,7 @@ add_executable(rocksdb_bench
                utils/crc32.cc
                utils/memleak.cc
                utils/zipfian_random.cc
+               utils/keyloader.cc
                utils/keygen.cc)
 target_link_libraries(rocksdb_bench 
                       ${PTHREAD_LIB} ${LIBM} ${LIBSNAPPY} ${LIBRT} ${LIBZ} ${LIBBZ2} ${LIBRDB})

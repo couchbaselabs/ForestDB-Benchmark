@@ -21,6 +21,7 @@
 #include "arch.h"
 #include "zipfian_random.h"
 #include "keygen.h"
+#include "keyloader.h"
 
 #include "memleak.h"
 
@@ -59,6 +60,7 @@ struct bench_info {
 
     // # docs, # files, DB module name, filename
     size_t ndocs;
+    char *keyfile;
     char *dbname;
     char *init_filename;
     char *filename;
@@ -75,6 +77,8 @@ struct bench_info {
     size_t nlevel;
     size_t nprefixes;
     struct keygen keygen;
+    struct keyloader kl;
+    size_t avg_keylen;
 
     // benchmark threads
     size_t nreaders;
@@ -226,7 +230,13 @@ void _create_doc(struct bench_info *binfo,
         doc->data.buf = NULL;
     }
 
-    doc->id.size = keygen_seed2key(&binfo->keygen, idx, keybuf);
+    if (binfo->keyfile) {
+        // load from file
+        doc->id.size = keyloader_get_key(&binfo->kl, idx, keybuf);
+    } else {
+        // random keygen
+        doc->id.size = keygen_seed2key(&binfo->keygen, idx, keybuf);
+    }
     if (!doc->id.buf) {
         doc->id.buf = (char *)malloc(MAX_KEYLEN);
     }
@@ -1153,7 +1163,11 @@ void * bench_thread(void *voidargs)
                 _bench_result_doc_hit(result, r);
                 _bench_result_file_hit(result, curfile_no);
 
-                rq_id.size = keygen_seed2key(&binfo->keygen, r, keybuf);
+                if (binfo->keyfile) {
+                    rq_id.size = keyloader_get_key(&binfo->kl, r, keybuf);
+                } else {
+                    rq_id.size = keygen_seed2key(&binfo->keygen, r, keybuf);
+                }
                 rq_id.buf = (char *)malloc(rq_id.size);
                 memcpy(rq_id.buf, keybuf, rq_id.size);
 
@@ -1177,7 +1191,11 @@ void * bench_thread(void *voidargs)
             r = op_med;
             curfile_no = GET_FILE_NO(binfo->ndocs, binfo->nfiles, r);
 
-            rq_id.size = keygen_seed2key(&binfo->keygen, r, keybuf);
+            if (binfo->keyfile) {
+                rq_id.size = keyloader_get_key(&binfo->kl, r, keybuf);
+            } else {
+                rq_id.size = keygen_seed2key(&binfo->keygen, r, keybuf);
+            }
             rq_id.buf = (char *)malloc(rq_id.size);
             memcpy(rq_id.buf, keybuf, rq_id.size);
 
@@ -2090,6 +2108,9 @@ next_loop:
     lprintf("\n");
 
     keygen_free(&binfo->keygen);
+    if (binfo->keyfile) {
+        keyloader_free(&binfo->kl);
+    }
     if (binfo->batch_dist.type == RND_ZIPFIAN) {
         zipf_rnd_free(&zipf);
     }
@@ -2224,9 +2245,16 @@ void _print_benchinfo(struct bench_info *binfo)
                 binfo->compressibility);
     }
 
-    lprintf("key length: %s(%d,%d) / ",
-            (binfo->keylen.type == RND_NORMAL)?"Norm":"Uniform",
-            (int)binfo->keylen.a, (int)binfo->keylen.b);
+    if (binfo->keyfile) {
+        // load key from file
+        lprintf("key data: %s (avg length: %d)\n",
+                binfo->keyfile, binfo->avg_keylen);
+    } else {
+        // random keygen
+        lprintf("key length: %s(%d,%d) / ",
+                (binfo->keylen.type == RND_NORMAL)?"Norm":"Uniform",
+                (int)binfo->keylen.a, (int)binfo->keylen.b);
+    }
     lprintf("body length: %s(%d,%d)\n",
             (binfo->bodylen.type == RND_NORMAL)?"Norm":"Uniform",
             (int)binfo->bodylen.a, (int)binfo->bodylen.b);
@@ -2325,6 +2353,21 @@ void _set_keygen(struct bench_info *binfo)
     keygen_init(&binfo->keygen, level, rnd_len, rnd_dist, &opt);
 }
 
+void _set_keyloader(struct bench_info *binfo)
+{
+    int ret;
+    struct keyloader_option option;
+
+    option.max_nkeys = binfo->ndocs;
+    ret = keyloader_init(&binfo->kl, binfo->keyfile, &option);
+    if (ret < 0) {
+        printf("error occured during loading file %s\n", binfo->keyfile);
+        exit(0);
+    }
+    binfo->ndocs = keyloader_get_nkeys(&binfo->kl);
+    binfo->avg_keylen = keyloader_get_avg_keylen(&binfo->kl);
+}
+
 struct bench_info get_benchinfo()
 {
     static dictionary *cfg;
@@ -2360,11 +2403,20 @@ struct bench_info get_benchinfo()
 #endif
 
     memset(&binfo, 0x0, sizeof(binfo));
-    binfo.ndocs = iniparser_getint(cfg, (char*)"document:ndocs", 10000);
     binfo.dbname = dbname;
     binfo.filename = filename;
     binfo.init_filename = init_filename;
     binfo.log_filename = log_filename;
+
+    binfo.ndocs = iniparser_getint(cfg, (char*)"document:ndocs", 10000);
+    str = iniparser_getstring(cfg, (char*)"document:key_file", (char*)"");
+    if (strcmp(str, "")) {
+        binfo.keyfile = (char*)malloc(256);
+        strcpy(binfo.keyfile, str);
+        _set_keyloader(&binfo);
+    } else {
+        binfo.keyfile = NULL;
+    }
 
     str = iniparser_getstring(cfg, (char*)"log:filename", (char*)"");
     strcpy(binfo.log_filename, str);
