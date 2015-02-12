@@ -26,9 +26,14 @@ static size_t c_threshold = 30;
 static size_t wal_size = 4096;
 static size_t c_period = 15;
 static int compression = 0;
+static int indexing_type = 0;
 
 couchstore_error_t couchstore_set_flags(uint64_t flags) {
     config_flags = flags;
+    return COUCHSTORE_SUCCESS;
+}
+couchstore_error_t couchstore_set_idx_type(int type) {
+    indexing_type = type;
     return COUCHSTORE_SUCCESS;
 }
 couchstore_error_t couchstore_set_cache(uint64_t size) {
@@ -141,7 +146,16 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
     (*pDb)->filename = (char *)malloc(strlen(filename)+1);
     strcpy((*pDb)->filename, filename);
 
-    status = fdb_open(&dbfile, fname, &config);
+    if (indexing_type == 1) {
+        // naive B+tree
+        char *kvs_names[] = {(char*)"default"};
+        fdb_custom_cmp_variable functions[] = {_bench_keycmp};
+        config.multi_kv_instances = true;
+        status = fdb_open_custom_cmp(&dbfile, fname, &config,
+                                     1, kvs_names, functions);
+    } else {
+        status = fdb_open(&dbfile, fname, &config);
+    }
     status = fdb_kvs_open_default(dbfile, &fdb, &kvs_config);
 
     (*pDb)->dbfile = dbfile;

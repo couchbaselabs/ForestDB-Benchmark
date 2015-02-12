@@ -42,16 +42,17 @@
 #endif
 
 struct bench_info {
-    uint8_t initialize; /* flag for initialization */
-    uint64_t cache_size; /* buffer cache size (for fdb, rdb, ldb) */
-    int auto_compaction; /* compaction mode */
+    uint8_t initialize;  // flag for initialization
+    uint64_t cache_size; // buffer cache size (for fdb, rdb, ldb)
+    int auto_compaction; // compaction mode
 
-    uint64_t wbs_init; /* write buffer size for bulk load */
-    uint64_t wbs_bench; /* write buffer size for normal benchmark */
-    uint64_t bloom_bpk; /* bloom filter bits per key */
-    uint8_t compaction_style; /* compaction style */
-    uint64_t fdb_wal; /* WAL size for fdb */
-    int wt_type; /* WiredTiger: B+tree or LSM-tree? */
+    uint64_t wbs_init;  // Level/RocksDB: write buffer size for bulk load
+    uint64_t wbs_bench; // Level/RocksDB: write buffer size for normal benchmark
+    uint64_t bloom_bpk; // Level/RocksDB: bloom filter bits per key
+    uint8_t compaction_style; // RocksDB: compaction style
+    uint64_t fdb_wal;         // ForestDB: WAL size
+    int fdb_type;             // ForestDB: HB+trie or B+tree?
+    int wt_type;              // WiredTiger: B+tree or LSM-tree?
     int compression;
     int compressibility;
 
@@ -1464,8 +1465,9 @@ void do_bench(struct bench_info *binfo)
     couchstore_set_compression(binfo->compression);
 #endif
 #if defined(__FDB_BENCH)
-    // ForestDB: set compaction mode, threshold, WAL size
+    // ForestDB: set compaction mode, threshold, WAL size, index type
     couchstore_set_compaction(binfo->auto_compaction, binfo->compact_thres);
+    couchstore_set_idx_type(binfo->fdb_type);
     couchstore_set_wal_size(binfo->fdb_wal);
 #endif
 #if defined(__WT_BENCH) || defined(__FDB_BENCH)
@@ -2234,6 +2236,7 @@ void _print_benchinfo(struct bench_info *binfo)
 
 #if defined(__FDB_BENCH)
     lprintf("WAL size: %" _F64"\n", binfo->fdb_wal);
+    lprintf("indexing: %s\n", (binfo->fdb_type==0)?"hb+trie":"b-tree");
 #endif // __FDB_BENCH
 
 #if defined(__WT_BENCH)
@@ -2248,7 +2251,7 @@ void _print_benchinfo(struct bench_info *binfo)
     if (binfo->keyfile) {
         // load key from file
         lprintf("key data: %s (avg length: %d)\n",
-                binfo->keyfile, binfo->avg_keylen);
+                binfo->keyfile, (int)binfo->avg_keylen);
     } else {
         // random keygen
         lprintf("key length: %s(%d,%d) / ",
@@ -2461,6 +2464,13 @@ struct bench_info get_benchinfo()
     }
     // WAL size for ForestDB
     binfo.fdb_wal = iniparser_getint(cfg, (char*)"db_config:fdb_wal", 4096);
+    // indexing type for ForestDB
+    str = iniparser_getstring(cfg, (char*)"db_config:fdb_type", (char*)"hb+trie");
+    if (str[0] == 'h' || str[0] == 'H') {
+        binfo.fdb_type = 0; /* hb+trie */
+    } else {
+        binfo.fdb_type = 1; /* b-tree */
+    }
     // indexing type for WiredTiger
     str = iniparser_getstring(cfg, (char*)"db_config:wt_type", (char*)"btree");
     if (str[0] == 'b' || str[0] == 'B') {
