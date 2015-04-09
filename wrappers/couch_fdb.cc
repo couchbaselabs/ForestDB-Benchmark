@@ -120,6 +120,8 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
     config.chunksize = sizeof(uint64_t);
     config.buffercache_size = (uint64_t)cache_size;
     config.wal_threshold = wal_size;
+    config.num_wal_partitions = 31;
+    config.num_bcache_partitions = 31;
     config.seqtree_opt = FDB_SEQTREE_NOT_USE;
     if (flags & 0x10) {
         config.durability_opt = FDB_DRB_NONE;
