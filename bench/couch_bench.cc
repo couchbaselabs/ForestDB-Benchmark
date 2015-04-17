@@ -1448,11 +1448,18 @@ void do_bench(struct bench_info *binfo)
     _bench_result_init(&result, binfo);
 
     written_init = written_final = written_prev = 0;
+
     if (binfo->bodylen.type == RND_NORMAL) {
         avg_docsize = binfo->bodylen.a;
     } else {
         avg_docsize = (binfo->bodylen.a + binfo->bodylen.b)/2;
     }
+    if (binfo->keylen.type == RND_NORMAL) {
+        avg_docsize += binfo->keylen.a;
+    } else {
+        avg_docsize += ((binfo->keylen.a + binfo->keylen.b)/2);
+    }
+
     strcpy(fsize1, print_filesize_approx(0, cmd));
     strcpy(fsize2, print_filesize_approx(0, cmd));
     memset(spaces, ' ', 80);
