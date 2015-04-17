@@ -17,6 +17,8 @@ int keyloader_init(struct keyloader *handle,
     uint64_t i, begin_pos, last_pos;
     uint64_t segsize = 256;
 
+    begin_pos = last_pos = 0;
+
     // file open
     handle->fd = open(filename, O_RDONLY);
     if (handle->fd < 0) {

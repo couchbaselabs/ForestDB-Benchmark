@@ -386,9 +386,9 @@ void * pop_print_time(void *voidargs)
     double iops, iops_i;
     uint64_t counter = 0, counter_prev = 0;
     uint64_t c = 0;
-    uint64_t remain_sec;
+    uint64_t remain_sec = 0;
     uint64_t elapsed_ms = 0;
-    uint64_t bytes_written;
+    uint64_t bytes_written = 0;
     struct pop_thread_args *args = (struct pop_thread_args *)voidargs;
     struct bench_info *binfo = args->binfo;
     struct timeval tv, tv_i;
@@ -862,7 +862,7 @@ void * bench_thread(void *voidargs)
     size_t i;
     int j;
     int batchsize;
-    int write_mode, write_mode_r;
+    int write_mode = 0, write_mode_r;
     int commit_mask[args->binfo->nfiles]; (void)commit_mask;
     int curfile_no, sampling_ms, monitoring;
     double prob;

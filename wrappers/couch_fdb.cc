@@ -236,7 +236,7 @@ couchstore_error_t couchstore_save_documents(Db *db, Doc* const docs[], DocInfo 
 {
     unsigned i;
     fdb_doc _doc;
-    fdb_status status;
+    fdb_status status = FDB_RESULT_SUCCESS;
     uint8_t buf[META_BUF_MAXLEN];
 
     memset(&_doc, 0, sizeof(_doc));
