@@ -34,7 +34,7 @@ void keygen_free(struct keygen *keygen)
 
 void _crc2key(struct keygen *keygen, uint64_t crc, char *buf, size_t len, uint8_t abt_only)
 {
-    int i;
+    size_t i;
     BDR_RNG_VARS_SET(crc);
     BDR_RNG_NEXTPAIR;
     BDR_RNG_NEXT;

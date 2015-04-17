@@ -59,7 +59,7 @@ int stopwatch_check_ms(struct stopwatch *sw, size_t ms)
     struct timeval cur, gap;
     gettimeofday(&cur, NULL);
     gap = _utime_gap(sw->start, cur);
-    if (gap.tv_sec * 1000 + gap.tv_usec / 1000 >= ms) {
+    if ((uint64_t)gap.tv_sec * 1000 + (uint64_t)gap.tv_usec / 1000 >= ms) {
         return 1;
     }
     return 0;
@@ -70,7 +70,7 @@ int stopwatch_check_us(struct stopwatch *sw, size_t us)
     struct timeval cur, gap;
     gettimeofday(&cur, NULL);
     gap = _utime_gap(sw->start, cur);
-    if (gap.tv_sec * 1000000 + gap.tv_usec >= us) {
+    if ((uint64_t)gap.tv_sec * 1000000 + (uint64_t)gap.tv_usec >= us) {
         return 1;
     }
     return 0;

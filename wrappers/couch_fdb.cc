@@ -299,7 +299,7 @@ LIBCOUCHSTORE_API
 couchstore_error_t couchstore_docinfo_by_id(Db *db, const void *id, size_t idlen, DocInfo **pInfo)
 {
     fdb_doc _doc;
-    fdb_status status;
+    fdb_status status; (void)status;
     size_t rev_meta_size;
     size_t meta_offset;
 
@@ -330,7 +330,7 @@ LIBCOUCHSTORE_API
 couchstore_error_t couchstore_docinfos_by_id(Db *db, const sized_buf ids[], unsigned numDocs,
         couchstore_docinfos_options options, couchstore_changes_callback_fn callback, void *ctx)
 {
-    int i;
+    size_t i;
     fdb_doc _doc;
     fdb_status status;
     DocInfo *docinfo;
@@ -381,7 +381,7 @@ couchstore_error_t couchstore_docinfos_by_sequence(Db *db,
                                                    couchstore_changes_callback_fn callback,
                                                    void *ctx)
 {
-    int i;
+    size_t i;
     fdb_doc _doc;
     fdb_status status;
     DocInfo *docinfo;
@@ -433,10 +433,7 @@ couchstore_error_t couchstore_open_document(Db *db,
 {
     fdb_doc _doc;
     fdb_status status;
-    size_t meta_offset;
     couchstore_error_t ret = COUCHSTORE_SUCCESS;
-
-    meta_offset = sizeof(uint64_t)*1 + sizeof(int) + sizeof(couchstore_content_meta_flags);
 
     memset(&_doc, 0, sizeof(_doc));
     _doc.key = (void *)id;

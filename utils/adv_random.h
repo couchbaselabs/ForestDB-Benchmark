@@ -38,14 +38,14 @@ extern "C" {
 
 #define BDR_RNG_VARS  \
         uint64_t rngx=rand(), rngy=362436069, rngz=521288629; \
-        uint64_t rngt, rngz2;
+        uint64_t rngt, rngz2; (void)rngt; (void)rngz2;
 
 #define BDR_RNG_VARS_SET(x)  \
         uint64_t rngx, rngy, rngz; \
         rngx = (x); \
         rngy = rngx; rngy ^= rngy << 16; rngy ^= rngy >> 5; rngy ^= rngy << 1; \
         rngz = rngy; rngz ^= rngz << 16; rngz ^= rngz >> 5; rngz ^= rngz << 1; \
-        uint64_t rngt, rngz2;
+        uint64_t rngt, rngz2; (void)rngt; (void)rngz2;
 
 //rngz contains the new value
 #define BDR_RNG_NEXT \

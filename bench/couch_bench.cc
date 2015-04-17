@@ -184,7 +184,7 @@ uint64_t print_proc_io_stat(char *buf, int print)
 #ifdef __PRINT_IOSTAT
     sprintf(buf, "/proc/%d/io", getpid());
     char str[64];
-    int ret;
+    int ret; (void)ret;
     unsigned long temp;
     uint64_t val=0;
     FILE *fp = fopen(buf, "r");
@@ -322,7 +322,7 @@ struct pop_thread_args {
 
 void * pop_thread(void *voidargs)
 {
-    int i, k, c, n;
+    size_t i, k, c, n;
     uint64_t counter;
     struct pop_thread_args *args = (struct pop_thread_args *)voidargs;
     struct bench_info *binfo = args->binfo;
@@ -447,7 +447,7 @@ void * pop_print_time(void *voidargs)
 
 void population(Db **db, struct bench_info *binfo)
 {
-    int i;
+    size_t i;
     void *ret[binfo->pop_nthreads+1];
     char buf[1024];
     double iops;
@@ -481,7 +481,7 @@ void population(Db **db, struct bench_info *binfo)
         }
     }
 
-    for (i=0;i<=binfo->pop_nthreads;++i){
+    for (i=0; i<=binfo->pop_nthreads; ++i){
         thread_join(tid[i], &ret[i]);
     }
 
@@ -710,7 +710,7 @@ void * compactor(void *voidargs)
     spin_lock(args->lock);
     *(args->cur_compaction) = -1;
     if (args->flag & 0x1) {
-        int ret, i, j;
+        int ret, i, j; (void)ret;
         int close_ack = 0;
         char cmd[256];
 
@@ -859,10 +859,11 @@ int iterate_callback(Db *db,
 void * bench_thread(void *voidargs)
 {
     struct bench_thread_args *args = (struct bench_thread_args *)voidargs;
-    int i, j;
+    size_t i;
+    int j;
     int batchsize;
     int write_mode, write_mode_r;
-    int commit_mask[args->binfo->nfiles];
+    int commit_mask[args->binfo->nfiles]; (void)commit_mask;
     int curfile_no, sampling_ms, monitoring;
     double prob;
     char curfile[256], keybuf[MAX_KEYLEN];
@@ -939,9 +940,9 @@ void * bench_thread(void *voidargs)
             }
         }
         if (args->op_signal & OP_REOPEN) {
-            for (i=0;i<args->binfo->nfiles;++i) {
+            for (i=0; i<args->binfo->nfiles; ++i) {
                 couchstore_close_db(args->db[i]);
-                sprintf(curfile, "%s%d.%d", binfo->filename, i,
+                sprintf(curfile, "%s%d.%d", binfo->filename, (int)i,
                         args->compaction_no[i]);
                 couchstore_open_db(curfile, 0x0, &args->db[i]);
             }
@@ -1061,7 +1062,7 @@ void * bench_thread(void *voidargs)
             op_dist.a = op_med - binfo->batchrange;
             op_dist.b = op_med + binfo->batchrange;
             if (op_dist.a < 0) op_dist.a = 0;
-            if (op_dist.b >= binfo->ndocs) op_dist.b = binfo->ndocs;
+            if (op_dist.b >= (int)binfo->ndocs) op_dist.b = binfo->ndocs;
         }
 
         if (sampling_ms &&
@@ -1109,7 +1110,7 @@ void * bench_thread(void *voidargs)
             }
 
             if (binfo->sync_write) {
-                for (j=0;j<binfo->nfiles;++j) {
+                for (j=0; j<(int)binfo->nfiles; ++j) {
                     if (commit_mask[j]) {
                         couchstore_commit(db[j]);
                     }
@@ -1261,7 +1262,7 @@ void * bench_thread(void *voidargs)
 void _wait_leveldb_compaction(struct bench_info *binfo, Db **db)
 {
     int n=6;
-    int i, ret;
+    int i, ret; (void)ret;
     char buf[256], str[64];
     unsigned long temp;
     uint64_t count=0;
@@ -1402,7 +1403,7 @@ void _print_percentile(struct bench_info *binfo,
 void do_bench(struct bench_info *binfo)
 {
     BDR_RNG_VARS;
-    int i, j, ret; (void)j;
+    int i, j, ret; (void)j; (void)ret;
     int curfile_no, compaction_turn;
     int compaction_no[binfo->nfiles], total_compaction = 0;
     int cur_compaction = -1;
@@ -1448,6 +1449,7 @@ void do_bench(struct bench_info *binfo)
     _bench_result_init(&result, binfo);
 
     written_init = written_final = written_prev = 0;
+    memset(&tid_compactor, 0x0, sizeof(tid_compactor));
 
     if (binfo->bodylen.type == RND_NORMAL) {
         avg_docsize = binfo->bodylen.a;
@@ -1519,7 +1521,7 @@ void do_bench(struct bench_info *binfo)
         couchstore_set_wbs_size(binfo->wbs_init);
 #endif
 
-        for (i=0;i<binfo->nfiles;++i){
+        for (i=0; i<(int)binfo->nfiles; ++i){
             compaction_no[i] = 0;
             sprintf(curfile, "%s%d.%d", binfo->init_filename, i,
                                         compaction_no[i]);
@@ -1560,7 +1562,7 @@ void do_bench(struct bench_info *binfo)
         written_final = written_init = print_proc_io_stat(cmd, 1);
         written_prev = written_final;
 
-        for (i=0;i<binfo->nfiles;++i){
+        for (i=0; i<(int)binfo->nfiles; ++i){
             couchstore_close_db(db[i]);
         }
         gap = stopwatch_stop(&sw);
@@ -1576,7 +1578,7 @@ void do_bench(struct bench_info *binfo)
     } else {
         // === load existing files =========
         stopwatch_start(&sw);
-        for (i=0;i<binfo->nfiles;++i) {
+        for (i=0; i<(int)binfo->nfiles; ++i) {
             compaction_no[i] = 0;
         }
 
@@ -1645,9 +1647,9 @@ void do_bench(struct bench_info *binfo)
         bench_worker = alca(thread_t, bench_threads);
         for (i=0;i<bench_threads;++i){
             // writer, reader, iterator
-            if (i < binfo->nwriters) {
+            if ((size_t)i < binfo->nwriters) {
                 b_args[i].mode = 1; // writer
-            } else if (i < binfo->nwriters + binfo->nreaders) {
+            } else if ((size_t)i < binfo->nwriters + binfo->nreaders) {
                 b_args[i].mode = 2; // reader
             } else {
                 b_args[i].mode = 3; // iterator
@@ -1671,7 +1673,7 @@ void do_bench(struct bench_info *binfo)
         // open db instances
 #if defined(__FDB_BENCH) || defined(__COUCH_BENCH) || defined(__WT_BENCH)
         b_args[i].db = (Db**)malloc(sizeof(Db*) * binfo->nfiles);
-        for (j=0;j<binfo->nfiles;++j){
+        for (j=0; j<(int)binfo->nfiles; ++j){
             sprintf(curfile, "%s%d.%d", binfo->filename, j, compaction_no[j]);
             couchstore_open_db(curfile,
                                COUCHSTORE_OPEN_FLAG_CREATE |
@@ -1722,7 +1724,7 @@ void do_bench(struct bench_info *binfo)
     }
 
     i = 0;
-    while (i<binfo->nbatches || binfo->nbatches == 0) {
+    while (i < (int)binfo->nbatches || binfo->nbatches == 0) {
         spin_lock(&b_stat.lock);
         op_count_read = b_stat.op_count_read;
         op_count_write = b_stat.op_count_write;
@@ -1731,7 +1733,7 @@ void do_bench(struct bench_info *binfo)
 
         if (stopwatch_check_ms(&progress, print_term_ms)) {
             // for every 0.1 sec, print current status
-            uint64_t cur_size;
+            uint64_t cur_size = 0;
             int cpt_no;
             double elapsed_time;
             Db *temp_db;
@@ -1985,11 +1987,11 @@ void do_bench(struct bench_info *binfo)
             }
 
             if (binfo->bench_secs && !warmingup &&
-                sw.elapsed.tv_sec >= binfo->bench_secs)
+                (size_t)sw.elapsed.tv_sec >= binfo->bench_secs)
                 break;
 
             if (warmingup &&
-                sw.elapsed.tv_sec >= binfo->warmup_secs) {
+                (size_t)sw.elapsed.tv_sec >= binfo->warmup_secs) {
                 // end of warming up .. initialize stats
                 stopwatch_init_start(&sw);
                 prev_op_count_read = op_count_read = 0;
@@ -2019,7 +2021,6 @@ void do_bench(struct bench_info *binfo)
             usleep(print_term_ms * 1000);
         }
 
-next_loop:
         if (binfo->nops && !warmingup &&
             (op_count_read + op_count_write) >= binfo->nops)
             break;
@@ -2132,7 +2133,7 @@ next_loop:
     printf("waiting for termination of DB module..\n");
 #if defined(__FDB_BENCH) || defined(__COUCH_BENCH) || defined(__WT_BENCH)
     for (i=0;i<bench_threads;++i){
-        for (j=0;j<binfo->nfiles;++j){
+        for (j=0;j<(int)binfo->nfiles;++j){
             couchstore_close_db(b_args[i].db[j]);
 #ifdef __FDB_BENCH
             if (i==0) {
@@ -2331,7 +2332,7 @@ void _print_benchinfo(struct bench_info *binfo)
 
 void _set_keygen(struct bench_info *binfo)
 {
-    int i, level = binfo->nlevel+1;
+    size_t i, level = binfo->nlevel+1;
     int avg_keylen, avg_prefixlen;
     struct rndinfo rnd_len[level], rnd_dist[level];
     struct keygen_option opt;
@@ -2743,6 +2744,7 @@ int main(int argc, char **argv){
             if (!_does_file_exist(str)) {
                 sprintf(cmd, "mkdir -p %s > errorlog.txt", str);
                 ret = system(cmd);
+                (void)ret;
             }
         }
 
