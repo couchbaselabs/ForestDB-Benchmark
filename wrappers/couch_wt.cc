@@ -6,6 +6,12 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
+
 #include "wiredtiger.h"
 #include "couch_db.h"
 #include "memleak.h"
@@ -57,7 +63,7 @@ couchstore_error_t couchstore_open_conn(const char *filename)
                     "log=(enabled),"
                     "checkpoint=(wait=%d),"
                     "cache_size=%" _F64,
-                    c_period,
+                    (int)c_period,
                     cache_size);
     if (compression) {
         strcat(config, ",extensions=[libwiredtiger_snappy.so]");
@@ -302,7 +308,6 @@ couchstore_error_t couchstore_open_document(Db *db,
                                             couchstore_open_options options)
 {
     int ret;
-    size_t meta_offset;
     WT_ITEM item;
 
     item.data = id;
@@ -310,9 +315,6 @@ couchstore_error_t couchstore_open_document(Db *db,
     db->cursor->set_key(db->cursor, &item);
     ret = db->cursor->search(db->cursor);
     assert(ret == 0);
-
-    meta_offset = sizeof(uint64_t)*1 + sizeof(int) +
-                  sizeof(couchstore_content_meta_flags);
 
     db->cursor->get_value(db->cursor, &item);
 

@@ -1693,7 +1693,7 @@ void do_bench(struct bench_info *binfo)
         if (i==0) {
             // open only once (multiple open is not allowed)
             b_args[i].db = (Db**)malloc(sizeof(Db*) * binfo->nfiles);
-            for (j=0;j<binfo->nfiles;++j){
+            for (j=0; j<(int)binfo->nfiles; ++j){
                 sprintf(curfile, "%s%d.%d", binfo->filename, j,
                                             compaction_no[j]);
                 couchstore_open_db(curfile, COUCHSTORE_OPEN_FLAG_CREATE,
@@ -2144,7 +2144,7 @@ void do_bench(struct bench_info *binfo)
         free(b_args[i].db);
     }
 #elif defined(__LEVEL_BENCH) || defined(__ROCKS_BENCH)
-    for (j=0;j<binfo->nfiles;++j){
+    for (j=0;j<(int)binfo->nfiles;++j){
         couchstore_close_db(b_args[0].db[j]);
     }
     free(b_args[0].db);

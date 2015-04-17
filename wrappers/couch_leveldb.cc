@@ -254,7 +254,7 @@ LIBCOUCHSTORE_API
 couchstore_error_t couchstore_docinfos_by_id(Db *db, const sized_buf ids[], unsigned numDocs,
         couchstore_docinfos_options options, couchstore_changes_callback_fn callback, void *ctx)
 {
-    int i;
+    size_t i;
     DocInfo *docinfo;
     char *err;
     void *value;
@@ -318,16 +318,12 @@ couchstore_error_t couchstore_open_document(Db *db,
     char *err = NULL;
     void *value;
     size_t valuelen;
-    size_t meta_offset;
 
     value = leveldb_get(db->db, db->read_options, (char*)id, idlen, &valuelen, &err);
     if (err) {
         printf("ERR %s\n", err);
     }
     assert(err == NULL);
-
-    meta_offset = sizeof(uint64_t)*1 + sizeof(int) +
-                  sizeof(couchstore_content_meta_flags);
 
     *pDoc = (Doc *)malloc(sizeof(Doc));
     (*pDoc)->id.buf = (char*)id;

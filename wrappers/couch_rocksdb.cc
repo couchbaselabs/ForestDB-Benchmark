@@ -254,8 +254,8 @@ LIBCOUCHSTORE_API
 couchstore_error_t couchstore_docinfo_by_id(Db *db, const void *id, size_t idlen, DocInfo **pInfo)
 {
     rocksdb::Status status;
-    std::string *value;
-    size_t valuelen;
+    std::string *value = NULL;
+    size_t valuelen= 0;
     size_t rev_meta_size;
     size_t meta_offset;
 
@@ -283,11 +283,11 @@ LIBCOUCHSTORE_API
 couchstore_error_t couchstore_docinfos_by_id(Db *db, const sized_buf ids[], unsigned numDocs,
         couchstore_docinfos_options options, couchstore_changes_callback_fn callback, void *ctx)
 {
-    int i;
+    size_t i;
     DocInfo *docinfo;
     rocksdb::Status status;
-    std::string *value;
-    size_t valuelen;
+    std::string *value = NULL;
+    size_t valuelen = 0;
     size_t rev_meta_size, max_meta_size = 256;
     size_t meta_offset;
 
@@ -344,9 +344,8 @@ couchstore_error_t couchstore_open_document(Db *db,
 {
     rocksdb::Status status;
     std::string tmp;
-    char* value;
+    char* value = NULL;
     size_t valuelen;
-    size_t meta_offset;
 
     status = db->db->Get(*db->read_options, rocksdb::Slice((char*)id, idlen),
                          &tmp);
@@ -360,9 +359,6 @@ couchstore_error_t couchstore_open_document(Db *db,
         }
     }
     assert(status.ok());
-
-    meta_offset = sizeof(uint64_t)*1 + sizeof(int) +
-                  sizeof(couchstore_content_meta_flags);
 
     *pDoc = (Doc *)malloc(sizeof(Doc));
     (*pDoc)->id.buf = (char*)id;
