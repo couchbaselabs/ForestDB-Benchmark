@@ -1823,7 +1823,7 @@ void do_bench(struct bench_info *binfo)
                                 (elapsed_time),
                         (double)((op_count_read + op_count_write) -
                                 (prev_op_count_read + prev_op_count_write)) /
-                                (elapsed_time),
+                                (_gap.tv_sec + (double)_gap.tv_usec / 1000000.0),
                         op_count_read, op_count_write,
                         written_final - written_init);
             }
@@ -2145,6 +2145,11 @@ next_loop:
 #if defined(__WT_BENCH) || defined(__FDB_BENCH)
     couchstore_close_conn();
 #endif
+
+    lprintf("\n");
+    stopwatch_stop(&sw);
+    gap = sw.elapsed;
+    LOG_PRINT_TIME(gap, " sec elapsed\n");
 
     free(dbinfo);
 
