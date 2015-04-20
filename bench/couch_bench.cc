@@ -1996,6 +1996,7 @@ void do_bench(struct bench_info *binfo)
                 stopwatch_init_start(&sw);
                 prev_op_count_read = op_count_read = 0;
                 prev_op_count_write = op_count_write = 0;
+                written_init = written_final;
                 spin_lock(&b_stat.lock);
                 b_stat.op_count_read = 0;
                 b_stat.op_count_write = 0;
