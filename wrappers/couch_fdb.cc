@@ -185,7 +185,7 @@ couchstore_error_t couchstore_close_db(Db *db)
 LIBCOUCHSTORE_API
 couchstore_error_t couchstore_db_info(Db *db, DbInfo* info)
 {
-    char **file, **new_file;
+    char **file;
     size_t offset;
 
     info->space_used = fdb_estimate_space_used(db->dbfile);
@@ -193,14 +193,7 @@ couchstore_error_t couchstore_db_info(Db *db, DbInfo* info)
     // hack the DB handle to get internal filename
     offset = sizeof(fdb_kvs_config) + sizeof(void*)*5;
     file = *(char***)((uint8_t*)db->fdb + offset);
-    offset = sizeof(fdb_kvs_config) + sizeof(void*)*6;
-    new_file = *(char***)((uint8_t*)db->fdb + offset);
-
-    if (new_file) {
-        info->filename = *new_file;
-    } else {
-        info->filename = *file;
-    }
+    info->filename = *file;
 
     return COUCHSTORE_SUCCESS;
 }
