@@ -191,7 +191,7 @@ couchstore_error_t couchstore_db_info(Db *db, DbInfo* info)
     info->space_used = fdb_estimate_space_used(db->dbfile);
 
     // hack the DB handle to get internal filename
-    offset = sizeof(fdb_kvs_config) + sizeof(void*)*5;
+    offset = sizeof(fdb_kvs_config) + sizeof(void*)*6;
     file = *(char***)((uint8_t*)db->fdb + offset);
     info->filename = *file;
 
