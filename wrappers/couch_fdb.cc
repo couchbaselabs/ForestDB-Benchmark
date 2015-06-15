@@ -27,6 +27,7 @@ static size_t wal_size = 4096;
 static size_t c_period = 15;
 static int compression = 0;
 static int indexing_type = 0;
+static int auto_compaction_threads = 4;
 
 couchstore_error_t couchstore_set_flags(uint64_t flags) {
     config_flags = flags;
@@ -44,6 +45,10 @@ couchstore_error_t couchstore_set_compaction(int mode,
                                              size_t threshold) {
     c_auto = mode;
     c_threshold = threshold;
+    return COUCHSTORE_SUCCESS;
+}
+couchstore_error_t couchstore_set_auto_compaction_threads(int num_threads) {
+    auto_compaction_threads = num_threads;
     return COUCHSTORE_SUCCESS;
 }
 couchstore_error_t couchstore_set_wal_size(size_t size) {
@@ -116,6 +121,7 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
     } else {
         config.compaction_mode = FDB_COMPACTION_MANUAL;
     }
+    config.num_compactor_threads = auto_compaction_threads;
     config.compactor_sleep_duration = c_period;
     config.chunksize = sizeof(uint64_t);
     config.buffercache_size = (uint64_t)cache_size;

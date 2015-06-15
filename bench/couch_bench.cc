@@ -46,6 +46,7 @@ struct bench_info {
     uint64_t cache_size; // buffer cache size (for fdb, rdb, ldb)
     int auto_compaction; // compaction mode
 
+    int auto_compaction_threads; // ForestDB: Number of auto compaction threads
     uint64_t wbs_init;  // Level/RocksDB: write buffer size for bulk load
     uint64_t wbs_bench; // Level/RocksDB: write buffer size for normal benchmark
     uint64_t bloom_bpk; // Level/RocksDB: bloom filter bits per key
@@ -1307,6 +1308,7 @@ couchstore_error_t couchstore_set_flags(uint64_t flags);
 couchstore_error_t couchstore_set_cache(uint64_t size);
 couchstore_error_t couchstore_set_compaction(int mode,
                                              size_t threshold);
+couchstore_error_t couchstore_set_auto_compaction_threads(int num_threads);
 couchstore_error_t couchstore_set_chk_period(size_t seconds);
 couchstore_error_t couchstore_open_conn(const char *filename);
 couchstore_error_t couchstore_close_conn();
@@ -1478,6 +1480,7 @@ void do_bench(struct bench_info *binfo)
     couchstore_set_compaction(binfo->auto_compaction, binfo->compact_thres);
     couchstore_set_idx_type(binfo->fdb_type);
     couchstore_set_wal_size(binfo->fdb_wal);
+    couchstore_set_auto_compaction_threads(binfo->auto_compaction_threads);
 #endif
 #if defined(__WT_BENCH) || defined(__FDB_BENCH)
     // WiredTiger & ForestDB: set compaction period
@@ -2221,6 +2224,8 @@ void _print_benchinfo(struct bench_info *binfo)
         lprintf("\n");
     }
 
+    lprintf("# auto-compaction threads: %d\n", binfo->auto_compaction_threads);
+
     lprintf("block cache size: %s\n",
             print_filesize_approx(binfo->cache_size, tempstr));
 #if defined(__LEVEL_BENCH) || defined(__ROCKS_BENCH)
@@ -2452,6 +2457,10 @@ struct bench_info get_benchinfo()
     // couchstore: manual compaction only
     binfo.auto_compaction = 0;
 #endif
+
+    // Number of auto-compaction threads for ForestDB
+    binfo.auto_compaction_threads =
+        iniparser_getint(cfg, (char*)"db_config:auto_compaction_threads", 4);
 
     // write buffer size for LevelDB & RocksDB
     binfo.wbs_init =
