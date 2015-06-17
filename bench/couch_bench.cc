@@ -910,7 +910,7 @@ void * bench_thread(void *voidargs)
     write_mode_random.a = 0;
     write_mode_random.b = 256 * 256;
 
-    crc = args->rnd_seed;
+    crc = args->rnd_seed + args->id;
     crc = MurmurHash64A(&crc, sizeof(crc), 0);
     BDR_RNG_VARS_SET(crc);
     BDR_RNG_NEXTPAIR;
