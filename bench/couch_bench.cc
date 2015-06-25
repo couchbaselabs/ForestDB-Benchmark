@@ -2390,12 +2390,13 @@ void _set_keyloader(struct bench_info *binfo)
     binfo->avg_keylen = keyloader_get_avg_keylen(&binfo->kl);
 }
 
-struct bench_info get_benchinfo()
+struct bench_info get_benchinfo(char *argv[])
 {
     static dictionary *cfg;
-    cfg = iniparser_new((char*)"./bench_config.ini");
+    cfg = iniparser_new(argv[1]);
 
     struct bench_info binfo;
+
     char *str;
     char *dbname = (char*)malloc(64);
     char *filename = (char*)malloc(256);
@@ -2734,7 +2735,7 @@ struct bench_info get_benchinfo()
     return binfo;
 }
 
-int main(int argc, char **argv){
+int main(int argc, char *argv[]){
     char filename[256];
     struct bench_info binfo;
     struct timeval gap;
@@ -2742,8 +2743,8 @@ int main(int argc, char **argv){
     randomize();
     rnd_seed = rand();
 
-    binfo = get_benchinfo();
-
+    binfo = get_benchinfo(argv);
+    
     if (strcmp(binfo.log_filename, "")){
         int ret;
         char temp[256], cmd[256], *str;
