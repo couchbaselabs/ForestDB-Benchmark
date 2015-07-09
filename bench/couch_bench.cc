@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <getopt.h>
 #include <string.h>
 #include <sys/time.h>
 #include <sys/stat.h>
@@ -2390,10 +2391,10 @@ void _set_keyloader(struct bench_info *binfo)
     binfo->avg_keylen = keyloader_get_avg_keylen(&binfo->kl);
 }
 
-struct bench_info get_benchinfo()
+struct bench_info get_benchinfo(char* bench_config_filename)
 {
     static dictionary *cfg;
-    cfg = iniparser_new((char*)"./bench_config.ini");
+    cfg = iniparser_new(bench_config_filename);
 
     struct bench_info binfo;
     char *str;
@@ -2735,14 +2736,66 @@ struct bench_info get_benchinfo()
 }
 
 int main(int argc, char **argv){
-    char filename[256];
+    int opt;
+	int initialize = 1;
+	char config_filename[256];
+	const char *short_opt = "hef:";
+	char filename[256];
     struct bench_info binfo;
     struct timeval gap;
 
     randomize();
     rnd_seed = rand();
 
-    binfo = get_benchinfo();
+    strcpy(config_filename,"bench_config.ini");
+	
+    struct option   long_opt[] =
+	{
+	  {"database",      no_argument,       NULL, 'e'}, 
+      {"help",          no_argument,       NULL, 'h'},
+      {"file",          optional_argument, NULL, 'f'},
+      {NULL,            0,                 NULL, 0  }
+    };
+
+
+while( (opt = getopt_long(argc, argv, short_opt, long_opt, NULL) ) != -1) {
+      switch(opt)
+      {
+         case -1:       // no more arguments
+         case 0:        // toggle long options
+         break;
+
+         case 'f':
+			printf("Using \"%s\" config file\n", optarg);
+			strcpy(config_filename, optarg);
+            break;
+			
+		case 'e':
+			printf("Using existing DB file\n");
+			initialize = 0;
+            break;
+
+         case 'h':
+			printf("Usage: %s [OPTIONS]\n", argv[0]);
+			printf("  -f file                   file\n");
+			printf("  -e, --existing            use existing database file\n");
+			printf("  -h, --help                print this help and exit\n");
+			printf("\n");
+			return(0);
+
+         case ':':
+         case '?':
+			fprintf(stderr, "Try `%s --help' for more information.\n", argv[0]);
+			return(-2);
+
+         default:
+			fprintf(stderr, "%s: invalid option -- %c\n", argv[0], opt);
+			fprintf(stderr, "Try `%s --help' for more information.\n", argv[0]);
+			return(-2);
+      };
+   };
+	
+	binfo = get_benchinfo(config_filename);
 
     if (strcmp(binfo.log_filename, "")){
         int ret;
@@ -2766,15 +2819,8 @@ int main(int argc, char **argv){
         log_fp = fopen(filename, "w");
     }
 
-    binfo.initialize = 1;
-    if (argc > 1) {
-        if (!memcmp((void *)argv[1], (void*)"--e", 3) ||
-            !memcmp((void *)argv[1], (void*)"-e", 2)) {
-            // use existing DB file
-            binfo.initialize = 0;
-        }
-    }
-
+    binfo.initialize = initialize;
+	
     _print_benchinfo(&binfo);
     do_bench(&binfo);
 
@@ -2784,4 +2830,3 @@ int main(int argc, char **argv){
 
     return 0;
 }
-
