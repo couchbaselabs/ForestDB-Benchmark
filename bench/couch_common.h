@@ -30,6 +30,9 @@ extern "C" {
      */
     typedef int64_t cs_off_t;
 
+    /**global variable whose value is set based on user input in bench_config */
+    extern int64_t DATABUF_MAXLEN; 
+
     /** Document content metadata flags */
     typedef uint8_t couchstore_content_meta_flags;
     enum {
