@@ -30,7 +30,6 @@
 #define MAX(a,b) (((a)>(b))?(a):(b))
 #define MIN(a,b) (((a)<(b))?(a):(b))
 #define randomize() srand((unsigned)time(NULL))
-
 #ifdef __DEBUG
 #ifndef __DEBUG_COUCHBENCH
     #undef DBG
@@ -41,6 +40,7 @@
     #define DBGSW(n, command...)
 #endif
 #endif
+int64_t DATABUF_MAXLEN = 0; 
 
 struct bench_info {
     uint8_t initialize;  // flag for initialization
@@ -248,6 +248,7 @@ void _create_doc(struct bench_info *binfo,
     BDR_RNG_NEXTPAIR;
     r = get_random(&binfo->bodylen, rngz, rngz2);
     if (r < 8) r = 8;
+    else if(r > DATABUF_MAXLEN) r = DATABUF_MAXLEN; 
 
     doc->data.size = r;
     // align to 8 bytes (sizeof(uint64_t))
@@ -2593,12 +2594,14 @@ struct bench_info get_benchinfo(char* bench_config_filename)
             iniparser_getint(cfg, (char*)"body_length:median", 512);
         binfo.bodylen.b =
             iniparser_getint(cfg, (char*)"body_length:standard_deviation", 32);
+        DATABUF_MAXLEN = binfo.bodylen.a + 5*binfo.bodylen.b;
     }else{
         binfo.bodylen.type = RND_UNIFORM;
         binfo.bodylen.a =
             iniparser_getint(cfg, (char*)"body_length:lower_bound", 448);
         binfo.bodylen.b =
             iniparser_getint(cfg, (char*)"body_length:upper_bound", 576);
+        DATABUF_MAXLEN = binfo.bodylen.b;
     }
     binfo.compressibility =
         iniparser_getint(cfg, (char*)"body_length:compressibility", 100);
