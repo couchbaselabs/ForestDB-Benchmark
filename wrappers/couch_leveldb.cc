@@ -160,7 +160,7 @@ couchstore_error_t couchstore_save_documents(Db *db, Doc* const docs[], DocInfo 
     uint8_t *buf;
     char *err = NULL;
     leveldb_writebatch_t *wb;
-
+    
     wb = leveldb_writebatch_create();
     buf = (uint8_t*)malloc(sizeof(metalen) + METABUF_MAXLEN + DATABUF_MAXLEN);
 
