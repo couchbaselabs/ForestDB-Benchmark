@@ -224,7 +224,6 @@ couchstore_error_t couchstore_save_documents(Db *db, Doc* const docs[], DocInfo 
     int ret;
     unsigned i;
     uint16_t metalen;
-    uint8_t metabuf[METABUF_MAXLEN];
     uint8_t *buf;
     WT_ITEM item;
 
@@ -232,15 +231,15 @@ couchstore_error_t couchstore_save_documents(Db *db, Doc* const docs[], DocInfo 
         ret = db->session->begin_transaction(db->session, "sync");
         assert(ret==0);
     }
-
+    
+    buf = (uint8_t*)malloc(sizeof(metalen) + METABUF_MAXLEN + DATABUF_MAXLEN); 
+    
     for (i=0;i<numdocs;++i){
         item.data = docs[i]->id.buf;
         item.size = docs[i]->id.size;
         db->cursor->set_key(db->cursor, &item);
 
-        metalen = _docinfo_to_buf(infos[i], metabuf);
-        buf = (uint8_t*)malloc(sizeof(metalen) + metalen + docs[i]->data.size);
-        memcpy(buf + sizeof(metalen), metabuf, metalen);
+        metalen = _docinfo_to_buf(infos[i], buf + sizeof(metalen));
         memcpy(buf, &metalen, sizeof(metalen));
         memcpy(buf + sizeof(metalen) + metalen, docs[i]->data.buf, docs[i]->data.size);
 
@@ -254,8 +253,8 @@ couchstore_error_t couchstore_save_documents(Db *db, Doc* const docs[], DocInfo 
         }
 
         infos[i]->db_seq = 0;
-        free(buf);
     }
+    free(buf);
 
     if (db->sync) {
         ret = db->session->commit_transaction(db->session, NULL);
