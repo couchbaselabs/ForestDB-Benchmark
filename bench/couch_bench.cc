@@ -40,7 +40,7 @@
     #define DBGSW(n, command...)
 #endif
 #endif
-int64_t DATABUF_MAXLEN = 0; 
+int64_t DATABUF_MAXLEN = 0;
 
 struct bench_info {
     uint8_t initialize;  // flag for initialization
@@ -110,6 +110,7 @@ struct bench_info {
     size_t write_prob;
     size_t compact_thres;
     size_t compact_period;
+    size_t block_reuse_thres;
 
     // synchronous write
     uint8_t sync_write;
@@ -248,7 +249,7 @@ void _create_doc(struct bench_info *binfo,
     BDR_RNG_NEXTPAIR;
     r = get_random(&binfo->bodylen, rngz, rngz2);
     if (r < 8) r = 8;
-    else if(r > DATABUF_MAXLEN) r = DATABUF_MAXLEN; 
+    else if(r > DATABUF_MAXLEN) r = DATABUF_MAXLEN;
 
     doc->data.size = r;
     // align to 8 bytes (sizeof(uint64_t))
@@ -1309,7 +1310,8 @@ wait_next:
 couchstore_error_t couchstore_set_flags(uint64_t flags);
 couchstore_error_t couchstore_set_cache(uint64_t size);
 couchstore_error_t couchstore_set_compaction(int mode,
-                                             size_t threshold);
+                                             size_t compact_thres,
+                                             size_t block_reuse_thres);
 couchstore_error_t couchstore_set_auto_compaction_threads(int num_threads);
 couchstore_error_t couchstore_set_chk_period(size_t seconds);
 couchstore_error_t couchstore_open_conn(const char *filename);
@@ -1479,7 +1481,9 @@ void do_bench(struct bench_info *binfo)
 #endif
 #if defined(__FDB_BENCH)
     // ForestDB: set compaction mode, threshold, WAL size, index type
-    couchstore_set_compaction(binfo->auto_compaction, binfo->compact_thres);
+    couchstore_set_compaction(binfo->auto_compaction,
+                              binfo->compact_thres,
+                              binfo->block_reuse_thres);
     couchstore_set_idx_type(binfo->fdb_type);
     couchstore_set_wal_size(binfo->fdb_wal);
     couchstore_set_auto_compaction_threads(binfo->auto_compaction_threads);
@@ -2329,6 +2333,9 @@ void _print_benchinfo(struct bench_info *binfo)
             "(period: %d seconds, %s)\n",
             (int)binfo->compact_thres, (int)binfo->compact_period,
             ((binfo->auto_compaction)?("auto"):("manual")));
+    if (binfo->block_reuse_thres) {
+        lprintf("block reuse threshold: %d %%\n", binfo->block_reuse_thres);
+    }
 #endif
 #if defined(__COUCH_BENCH)
     lprintf("compaction threshold: %d %%\n", (int)binfo->compact_thres);
@@ -2724,6 +2731,21 @@ struct bench_info get_benchinfo(char* bench_config_filename)
         iniparser_getint(cfg, (char*)"compaction:threshold", 30);
     binfo.compact_period =
         iniparser_getint(cfg, (char*)"compaction:period", 15);
+    binfo.block_reuse_thres =
+        iniparser_getint(cfg, (char*)"compaction:block_reuse", 0);
+    if (binfo.block_reuse_thres) {
+        if (binfo.block_reuse_thres < 0) {
+            binfo.block_reuse_thres = 0;
+        }
+        if (binfo.block_reuse_thres > 100) {
+            binfo.block_reuse_thres = 100;
+        }
+        // if block reuse is turned on, re-adjust compaction threshold
+        int live_ratio = 100 - binfo.block_reuse_thres;
+        if (binfo.compact_thres > 0 && binfo.compact_thres < 100) {
+            binfo.compact_thres = 100 - live_ratio/2;
+        }
+    }
 
     // latency monitoring
     binfo.latency_rate =

@@ -22,7 +22,8 @@ struct _db {
 static uint64_t config_flags = 0x0;
 static uint64_t cache_size = 0;
 static int c_auto = 1;
-static size_t c_threshold = 30;
+static size_t c_threshold = 83;
+static size_t br_threshold = 65;
 static size_t wal_size = 4096;
 static size_t c_period = 15;
 static int compression = 0;
@@ -42,9 +43,11 @@ couchstore_error_t couchstore_set_cache(uint64_t size) {
     return COUCHSTORE_SUCCESS;
 }
 couchstore_error_t couchstore_set_compaction(int mode,
-                                             size_t threshold) {
+                                             size_t compact_thres,
+                                             size_t block_reuse_thres) {
     c_auto = mode;
-    c_threshold = threshold;
+    c_threshold = compact_thres;
+    br_threshold = block_reuse_thres;
     return COUCHSTORE_SUCCESS;
 }
 couchstore_error_t couchstore_set_auto_compaction_threads(int num_threads) {
@@ -121,6 +124,7 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
     } else {
         config.compaction_mode = FDB_COMPACTION_MANUAL;
     }
+    config.block_reusing_threshold = br_threshold;
     config.num_compactor_threads = auto_compaction_threads;
     config.compactor_sleep_duration = c_period;
     config.chunksize = sizeof(uint64_t);
