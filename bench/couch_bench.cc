@@ -57,6 +57,8 @@ struct bench_info {
     int wt_type;              // WiredTiger: B+tree or LSM-tree?
     int compression;
     int compressibility;
+    int split_pct;      // WiredTiger size of newly split page
+    size_t leaf_pg_size, int_pg_size; //WiredTiger page sizes
 
     uint32_t latency_rate; // sampling rate for latency monitoring
     uint32_t latency_max; // max samples for latency monitoring
@@ -1323,6 +1325,8 @@ couchstore_error_t couchstore_set_sync(Db *db, int sync);
 couchstore_error_t couchstore_set_bloom(int bits_per_key);
 couchstore_error_t couchstore_set_compaction_style(int style);
 couchstore_error_t couchstore_set_compression(int opt);
+couchstore_error_t couchstore_set_split_pct(int pct);
+couchstore_error_t couchstore_set_page_size(size_t leaf_pg_size, size_t int_pg_size);
 
 int _does_file_exist(char *filename) {
     struct stat st;
@@ -1502,6 +1506,11 @@ void do_bench(struct bench_info *binfo)
         couchstore_set_compaction_style(binfo->compaction_style);
     }
 #endif // __ROCKS_BENCH
+#if defined(__WT_BENCH)
+    // WiredTiger: set split_pct and page size parameters
+    couchstore_set_split_pct(binfo->split_pct);
+    couchstore_set_page_size(binfo->leaf_pg_size, binfo->int_pg_size);
+#endif
 
 
     if (binfo->initialize) {
@@ -2519,6 +2528,13 @@ struct bench_info get_benchinfo(char* bench_config_filename)
     } else {
         binfo.compression = 0;
     }
+    //split_pct and page size paramaters for WiredTiger
+    binfo.split_pct =
+        iniparser_getint(cfg, (char*)"db_config:split_pct", 100);
+    binfo.leaf_pg_size =
+        iniparser_getint(cfg, (char*)"db_config:leaf_pg_size_KB", 4);
+    binfo.int_pg_size =
+        iniparser_getint(cfg, (char*)"db_config:int_pg_size_KB", 4);
 
     str = iniparser_getstring(cfg, (char*)"db_file:filename",
                                    (char*)"./dummy");

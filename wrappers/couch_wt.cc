@@ -30,6 +30,8 @@ static uint64_t cache_size = 0;
 static int indexing_type = 0;
 static size_t c_period = 15;
 static int compression = 0;
+static int split_pct = 0;
+static size_t leaf_page_size, int_page_size = 0;
 
 couchstore_error_t couchstore_set_cache(uint64_t size) {
     cache_size = size;
@@ -45,6 +47,15 @@ couchstore_error_t couchstore_set_chk_period(size_t seconds) {
 }
 couchstore_error_t couchstore_set_compression(int opt) {
     compression = opt;
+    return COUCHSTORE_SUCCESS;
+}
+couchstore_error_t couchstore_set_split_pct(int pct) {
+    split_pct = pct;
+    return COUCHSTORE_SUCCESS;
+}
+couchstore_error_t couchstore_set_page_size(size_t leaf_pg_size, size_t int_pg_size) {
+    leaf_page_size = leaf_pg_size;
+    int_page_size = int_pg_size;
     return COUCHSTORE_SUCCESS;
 }
 
@@ -136,14 +147,16 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
     if (indexing_type == 1) {
         // lsm-tree
         sprintf(table_config,
-                "split_pct=100,leaf_item_max=1KB,"
-                "type=lsm,internal_page_max=4KB,leaf_page_max=4KB,"
+                "split_pct=%d,leaf_item_max=1KB,"
+                "type=lsm,internal_page_max=%zdKB,leaf_page_max=%zdKB,"
                 "lsm=(chunk_size=4MB,"
-                     "bloom_config=(leaf_page_max=4MB))");
+                     "bloom_config=(leaf_page_max=%zdMB))"
+                , split_pct, int_page_size, leaf_page_size, leaf_page_size);
     } else {
         sprintf(table_config,
-                "split_pct=100,leaf_item_max=1KB,"
-                "internal_page_max=4KB,leaf_page_max=4KB");
+                "split_pct=%d,leaf_item_max=1KB,"
+                "internal_page_max=%zdKB,leaf_page_max=%zdKB"
+                ,split_pct, int_page_size, leaf_page_size);
     }
     if (compression) {
         strcat(table_config, ",block_compressor=snappy");
@@ -231,9 +244,9 @@ couchstore_error_t couchstore_save_documents(Db *db, Doc* const docs[], DocInfo 
         ret = db->session->begin_transaction(db->session, "sync");
         assert(ret==0);
     }
-    
-    buf = (uint8_t*)malloc(sizeof(metalen) + METABUF_MAXLEN + DATABUF_MAXLEN); 
-    
+
+    buf = (uint8_t*)malloc(sizeof(metalen) + METABUF_MAXLEN + DATABUF_MAXLEN);
+
     for (i=0;i<numdocs;++i){
         item.data = docs[i]->id.buf;
         item.size = docs[i]->id.size;
