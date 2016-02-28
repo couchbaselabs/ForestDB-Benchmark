@@ -2343,7 +2343,7 @@ void _print_benchinfo(struct bench_info *binfo)
             (int)binfo->compact_thres, (int)binfo->compact_period,
             ((binfo->auto_compaction)?("auto"):("manual")));
     if (binfo->block_reuse_thres) {
-        lprintf("block reuse threshold: %d %%\n", binfo->block_reuse_thres);
+        lprintf("block reuse threshold: %d %%\n", (int)binfo->block_reuse_thres);
     }
 #endif
 #if defined(__COUCH_BENCH)
