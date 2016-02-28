@@ -2780,9 +2780,9 @@ struct bench_info get_benchinfo(char* bench_config_filename)
     binfo.compact_thres =
         iniparser_getint(cfg, (char*)"compaction:threshold", 30);
     binfo.compact_period =
-        iniparser_getint(cfg, (char*)"compaction:period", 15);
+        iniparser_getint(cfg, (char*)"compaction:period", 60);
     binfo.block_reuse_thres =
-        iniparser_getint(cfg, (char*)"compaction:block_reuse", 0);
+        iniparser_getint(cfg, (char*)"compaction:block_reuse", 70);
     if (binfo.block_reuse_thres) {
         if (binfo.block_reuse_thres < 0) {
             binfo.block_reuse_thres = 0;
