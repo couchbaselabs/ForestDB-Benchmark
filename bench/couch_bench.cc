@@ -2419,6 +2419,7 @@ struct bench_info get_benchinfo(char* bench_config_filename)
     char *filename = (char*)malloc(256);
     char *init_filename = (char*)malloc(256);
     char *log_filename = (char*)malloc(256);
+    char dbname_postfix[64];
     size_t ncores;
 #if defined(WIN32) || defined(_WIN32)
     SYSTEM_INFO sysinfo;
@@ -2430,16 +2431,22 @@ struct bench_info get_benchinfo(char* bench_config_filename)
 
 #ifdef __FDB_BENCH
     sprintf(dbname, "ForestDB");
+    sprintf(dbname_postfix, "fdb");
 #elif __COUCH_BENCH
     sprintf(dbname, "Couchstore");
+    sprintf(dbname_postfix, "couch");
 #elif __LEVEL_BENCH
     sprintf(dbname, "LevelDB");
+    sprintf(dbname_postfix, "level");
 #elif __ROCKS_BENCH
     sprintf(dbname, "RocksDB");
+    sprintf(dbname_postfix, "rocks");
 #elif __WT_BENCH
     sprintf(dbname, "WiredTiger");
+    sprintf(dbname_postfix, "wt");
 #else
     sprintf(dbname, "unknown");
+    sprintf(dbname_postfix, "unknown");
 #endif
 
     memset(&binfo, 0x0, sizeof(binfo));
@@ -2538,7 +2545,7 @@ struct bench_info get_benchinfo(char* bench_config_filename)
 
     str = iniparser_getstring(cfg, (char*)"db_file:filename",
                                    (char*)"./dummy");
-    strcpy(binfo.filename, str);
+    sprintf(binfo.filename, "%s_%s", str, dbname_postfix);
 
     str = iniparser_getstring(cfg, (char*)"db_file:init_filename",
                                    binfo.filename);
