@@ -1527,12 +1527,12 @@ void do_bench(struct bench_info *binfo)
         // check if previous file exists
         if (_dir_scan(binfo, NULL)) {
             // ask user
-            char answer[64];
+            char answer[64], *ret;
             memset(answer, 0x0, sizeof(answer));
             lprintf("\nPrevious DB file already exists. "
                     "Are you sure to remove it (y/N)? ");
-            fgets(answer, sizeof(answer), stdin);
-            if (!(answer[0] == 'Y' || answer[0] == 'y')) {
+            ret = fgets(answer, sizeof(answer), stdin);
+            if (ret && !(answer[0] == 'Y' || answer[0] == 'y')) {
                 lprintf("Terminate benchmark ..\n\n");
 
                 free(dbinfo);
