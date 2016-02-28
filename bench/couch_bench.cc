@@ -777,12 +777,13 @@ void signal_handler(int sig_no)
     signal(SIGINT, signal_handler_confirm);
 }
 
-void _dir_scan(struct bench_info *binfo, int *compaction_no)
+int _dir_scan(struct bench_info *binfo, int *compaction_no)
 {
     int filename_len = strlen(binfo->filename);
     int dirname_len = 0;
     int i;
     int db_no, cpt_no;
+    int result = 0;
     char dirname[256], *filename;
     DIR *dir_info;
     struct dirent *dir_entry;
@@ -809,12 +810,19 @@ void _dir_scan(struct bench_info *binfo, int *compaction_no)
     if (dir_info != NULL) {
         while((dir_entry = readdir(dir_info))) {
             if (!strncmp(dir_entry->d_name, filename, strlen(filename))) {
-                sscanf(dir_entry->d_name + (filename_len - dirname_len),
-                       "%d.%d", &db_no, &cpt_no);
-                compaction_no[db_no] = cpt_no;
+                // file exists
+                result = 1;
+                if (compaction_no) {
+                    sscanf(dir_entry->d_name + (filename_len - dirname_len),
+                           "%d.%d", &db_no, &cpt_no);
+                    compaction_no[db_no] = cpt_no;
+                }
             }
         }
+        closedir(dir_info);
     }
+
+    return result;
 }
 
 struct bench_shared_stat {
@@ -1515,6 +1523,25 @@ void do_bench(struct bench_info *binfo)
 
     if (binfo->initialize) {
         // === initialize and populate files ========
+
+        // check if previous file exists
+        if (_dir_scan(binfo, NULL)) {
+            // ask user
+            char answer[64];
+            memset(answer, 0x0, sizeof(answer));
+            lprintf("\nPrevious DB file already exists. "
+                    "Are you sure to remove it (y/N)? ");
+            fgets(answer, sizeof(answer), stdin);
+            if (!(answer[0] == 'Y' || answer[0] == 'y')) {
+                lprintf("Terminate benchmark ..\n\n");
+
+                free(dbinfo);
+                 _bench_result_free(&result);
+                memleak_end();
+                return;
+            }
+        }
+
         // erase previous db file
         lprintf("\ninitialize\n");
         sprintf(cmd, "rm -rf %s* 2> errorlog.txt", binfo->filename);
