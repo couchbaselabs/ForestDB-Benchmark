@@ -150,7 +150,7 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
     } else {
         config.auto_commit = false;
     }
-    config.prefetch_duration = 30;
+    config.prefetch_duration = 0;
     config.multi_kv_instances = false;
 
     kvs_config = fdb_get_default_kvs_config();
