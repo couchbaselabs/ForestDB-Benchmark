@@ -692,6 +692,7 @@ struct compactor_args {
     struct bench_thread_args *b_args;
     int *cur_compaction;
     int bench_threads;
+    int curfile_no;
     uint8_t flag;
     spin_t *lock;
 };
@@ -2036,6 +2037,7 @@ void do_bench(struct bench_info *binfo)
                     }
 
                     c_args.flag = 1;
+                    c_args.curfile_no = curfile_no;
                     c_args.binfo = binfo;
                     c_args.curfile = (char*)malloc(256);
                     c_args.newfile = (char*)malloc(256);
@@ -2837,11 +2839,15 @@ struct bench_info get_benchinfo(char* bench_config_filename)
         if (binfo.block_reuse_thres > 100) {
             binfo.block_reuse_thres = 100;
         }
+
+#ifdef __FDB_BENCH
         // if block reuse is turned on, re-adjust compaction threshold
+        // (only for forestdb)
         int live_ratio = 100 - binfo.block_reuse_thres;
         if (binfo.compact_thres > 0 && binfo.compact_thres < 100) {
             binfo.compact_thres = 100 - live_ratio/2;
         }
+#endif
     }
 
     // latency monitoring
