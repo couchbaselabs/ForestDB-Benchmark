@@ -197,14 +197,15 @@ LIBCOUCHSTORE_API
 couchstore_error_t couchstore_db_info(Db *db, DbInfo* info)
 {
     char **file;
-    size_t offset;
+    size_t file_offset;
+    uint64_t filename_address;
+    fdb_file_info fdb_info;
 
-    info->space_used = fdb_estimate_space_used(db->dbfile);
+    fdb_get_file_info(db->dbfile, &fdb_info);
 
-    // hack the DB handle to get internal filename
-    offset = sizeof(fdb_kvs_config) + sizeof(void*)*6;
-    file = *(char***)((uint8_t*)db->fdb + offset);
-    info->filename = *file;
+    info->file_size = fdb_info.file_size;
+    info->space_used = fdb_info.space_used;
+    info->filename = fdb_info.filename;
 
     return COUCHSTORE_SUCCESS;
 }

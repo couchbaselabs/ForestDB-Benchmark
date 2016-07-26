@@ -1896,7 +1896,7 @@ void do_bench(struct bench_info *binfo)
             printf("\n");
 #if defined(__FDB_BENCH) || defined(__COUCH_BENCH)
             if (display_tick % filesize_chk_term == 0) {
-                cur_size = get_filesize(curfile);
+                cur_size = dbinfo->file_size;
                 if (binfo->auto_compaction) { // auto
                     print_filesize_approx(cur_size, fsize1);
                 } else { // manual
