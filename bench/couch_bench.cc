@@ -1359,13 +1359,13 @@ couchstore_error_t couchstore_set_compression(int opt);
 couchstore_error_t couchstore_set_split_pct(int pct);
 couchstore_error_t couchstore_set_page_size(size_t leaf_pg_size, size_t int_pg_size);
 
-int _does_file_exist(char *filename) {
+static int _does_file_exist(char *filename) {
     struct stat st;
     int result = stat(filename, &st);
     return result == 0;
 }
 
-char *_get_dirname(char *filename, char *dirname_buf)
+static char *_get_dirname(char *filename, char *dirname_buf)
 {
     int i;
     int len = strlen(filename);
@@ -1376,6 +1376,20 @@ char *_get_dirname(char *filename, char *dirname_buf)
         	memcpy(dirname_buf, filename, i);
         	dirname_buf[i] = 0;
         	return dirname_buf;
+        }
+    }
+    return NULL;
+}
+
+static char *_get_filename_pos(char *filename)
+{
+    int i;
+    int len = strlen(filename);
+
+    // find first '/' from right
+    for (i=len-1; i>=0; --i){
+        if (filename[i] == '/') {
+            return filename + i + 1;
         }
     }
     return NULL;
@@ -2596,7 +2610,16 @@ struct bench_info get_benchinfo(char* bench_config_filename)
 
     str = iniparser_getstring(cfg, (char*)"db_file:filename",
                                    (char*)"./dummy");
-    sprintf(binfo.filename, "%s_%s", str, dbname_postfix);
+    char dirname[256], *dirname_ret, *filename_ret;
+    dirname_ret = _get_dirname(str, dirname);
+    filename_ret = _get_filename_pos(str);
+    if (dirname_ret) {
+        sprintf(binfo.filename, "%s/%s/%s_%s",
+            dirname_ret, dbname_postfix, filename_ret, dbname_postfix);
+    } else {
+        sprintf(binfo.filename, "%s/%s_%s",
+            dbname_postfix, str, dbname_postfix);
+    }
 
     str = iniparser_getstring(cfg, (char*)"db_file:init_filename",
                                    binfo.filename);
