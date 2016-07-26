@@ -306,6 +306,7 @@ void _create_doc(struct bench_info *binfo,
     info->id = doc->id;
     info->rev_meta.buf = (char *)metabuf;
     info->rev_meta.size = 4;
+    info->content_meta = (binfo->compression)?(COUCH_DOC_IS_COMPRESSED):(0);
 
     *pdoc = doc;
     *pinfo = info;
@@ -361,7 +362,7 @@ void * pop_thread(void *voidargs)
             *(args->counter) += counter;
             spin_unlock(args->lock);
 
-            couchstore_save_documents(db, docs, infos, i-c, 0x0);
+            couchstore_save_documents(db, docs, infos, i-c, binfo->compression);
             if (binfo->pop_commit) {
                 couchstore_commit(db);
             }
@@ -718,7 +719,6 @@ void * compactor(void *voidargs)
                        COUCHSTORE_OPEN_FLAG_CREATE |
                            ((args->binfo->sync_write)?(0x10):(0x0)),
                        &db);
-
     stopwatch_start(sw_compaction);
     couchstore_compact_db(db, newfile);
     couchstore_close_db(db);
@@ -1128,7 +1128,7 @@ void * bench_thread(void *voidargs)
 
                 _create_doc(binfo, r, &rq_doc, &rq_info);
                 err = couchstore_save_document(db[curfile_no], rq_doc,
-                                               rq_info, 0x0);
+                                               rq_info, binfo->compression);
 
                 // set mask
                 commit_mask[curfile_no] = 1;
@@ -1170,14 +1170,25 @@ void * bench_thread(void *voidargs)
                     err = couchstore_save_documents(db[curfile_no],
                                                     rq_doc_arr[i],
                                                     rq_info_arr[i],
-                                                    file_doccount[i], 0x0);
+                                                    file_doccount[i],
+                                                    binfo->compression);
+                    if (err != COUCHSTORE_SUCCESS) {
+                        printf("write error: file number %" _F64 "\n", i);
+                    }
 #if defined(__COUCH_BENCH)
+                    if (err == COUCHSTORE_SUCCESS) {
                         err = couchstore_commit(db[curfile_no]);
+                        if (err != COUCHSTORE_SUCCESS) {
+                            printf("commit error: file number %" _F64 "\n", i);
+                        }
+                    }
 #endif
                 }
             }
 #endif
+            if (err == COUCHSTORE_SUCCESS) {
                 op_w_cum += batchsize;
+            }
 
         } else if (args->mode == 2) {
             // read
@@ -1199,14 +1210,15 @@ void * bench_thread(void *voidargs)
                 memcpy(rq_id.buf, keybuf, rq_id.size);
 
                 err = couchstore_open_document(db[curfile_no], rq_id.buf,
-                                               rq_id.size, &rq_doc, 0x0);
+                                               rq_id.size, &rq_doc, binfo->compression);
                 if (err != COUCHSTORE_SUCCESS) {
                     printf("read error: document number %" _F64 "\n", r);
-                }
-
+                } else {
                     rq_doc->id.buf = NULL;
                     couchstore_free_document(rq_doc);
                     rq_doc = NULL;
+                }
+
                 free(rq_id.buf);
             }
             op_r_cum += batchsize;
@@ -1712,6 +1724,7 @@ void do_bench(struct bench_info *binfo)
             }
         }
     }
+
     bench_worker_ret = alca(void*, bench_threads);
     for (i=0;i<bench_threads;++i){
         b_args[i].id = i;
