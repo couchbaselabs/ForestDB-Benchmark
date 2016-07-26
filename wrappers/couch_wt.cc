@@ -13,10 +13,11 @@
 #include <inttypes.h>
 
 #include "wiredtiger.h"
-#include "couch_db.h"
+#include "libcouchstore/couch_db.h"
 #include "memleak.h"
 
 #define METABUF_MAXLEN (256)
+extern int64_t DATABUF_MAXLEN;
 
 struct _db {
     WT_CURSOR *cursor;
@@ -113,7 +114,7 @@ couchstore_error_t couchstore_open_db(const char *filename,
 LIBCOUCHSTORE_API
 couchstore_error_t couchstore_open_db_ex(const char *filename,
                                          couchstore_open_flags flags,
-                                         const couch_file_ops *ops,
+                                         FileOpsInterface *ops,
                                          Db **pDb)
 {
     int i, len, ret;
@@ -406,7 +407,7 @@ couchstore_error_t couchstore_commit(Db *db)
 
 LIBCOUCHSTORE_API
 couchstore_error_t couchstore_compact_db_ex(Db* source, const char* target_filename,
-        uint64_t flags, const couch_file_ops *ops)
+        uint64_t flags, FileOpsInterface *ops)
 {
     return COUCHSTORE_SUCCESS;
 }

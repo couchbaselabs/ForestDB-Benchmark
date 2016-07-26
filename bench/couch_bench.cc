@@ -13,8 +13,8 @@
 #include <signal.h>
 #include <dirent.h>
 
-#include "couch_common.h"
-#include "couch_db.h"
+#include "libcouchstore/couch_db.h"
+#include "libcouchstore/file_ops.h"
 #include "adv_random.h"
 #include "stopwatch.h"
 #include "iniparser.h"
@@ -25,6 +25,8 @@
 #include "keyloader.h"
 
 #include "memleak.h"
+
+couchstore_error_t couchstore_close_db(Db *db);
 
 #define alca(type, n) ((type*)alloca(sizeof(type) * (n)))
 #define MAX(a,b) (((a)>(b))?(a):(b))
@@ -693,6 +695,15 @@ struct compactor_args {
     spin_t *lock;
 };
 
+#if defined(__COUCH_BENCH)
+couchstore_error_t couchstore_close_db(Db *db)
+{
+    couchstore_close_file(db);
+    couchstore_free_db(db);
+    return COUCHSTORE_SUCCESS;
+}
+#endif
+
 #if defined(__FDB_BENCH) || defined(__COUCH_BENCH)
 
 void * compactor(void *voidargs)
@@ -1161,12 +1172,12 @@ void * bench_thread(void *voidargs)
                                                     rq_info_arr[i],
                                                     file_doccount[i], 0x0);
 #if defined(__COUCH_BENCH)
-                    err = couchstore_commit(db[curfile_no]);
+                        err = couchstore_commit(db[curfile_no]);
 #endif
                 }
             }
 #endif
-            op_w_cum += batchsize;
+                op_w_cum += batchsize;
 
         } else if (args->mode == 2) {
             // read
@@ -1193,9 +1204,9 @@ void * bench_thread(void *voidargs)
                     printf("read error: document number %" _F64 "\n", r);
                 }
 
-                rq_doc->id.buf = NULL;
-                couchstore_free_document(rq_doc);
-                rq_doc = NULL;
+                    rq_doc->id.buf = NULL;
+                    couchstore_free_document(rq_doc);
+                    rq_doc = NULL;
                 free(rq_id.buf);
             }
             op_r_cum += batchsize;

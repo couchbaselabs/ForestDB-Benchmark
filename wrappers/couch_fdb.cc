@@ -5,13 +5,14 @@
 #include <assert.h>
 
 #include "libforestdb/forestdb.h"
-#include "couch_db.h"
+#include "libcouchstore/couch_db.h"
 
 #include "memleak.h"
 
 #define META_BUF_MAXLEN (256)
 #define SEQNUM_NOT_USED (0xffffffffffffffff)
 #define MAX_KEYLEN (4096)
+extern int64_t DATABUF_MAXLEN;
 
 struct _db {
     fdb_file_handle *dbfile;
@@ -106,7 +107,7 @@ static int _bench_keycmp(void *key1, size_t keylen1, void *key2, size_t keylen2)
 LIBCOUCHSTORE_API
 couchstore_error_t couchstore_open_db_ex(const char *filename,
                                          couchstore_open_flags flags,
-                                         const couch_file_ops *ops,
+                                         FileOpsInterface *ops,
                                          Db **pDb)
 {
     fdb_config config;
@@ -524,7 +525,7 @@ couchstore_error_t couchstore_commit(Db *db)
 
 LIBCOUCHSTORE_API
 couchstore_error_t couchstore_compact_db_ex(Db* source, const char* target_filename,
-        uint64_t flags, const couch_file_ops *ops)
+        uint64_t flags, FileOpsInterface *ops)
 {
     char *new_filename = (char *)target_filename;
     fdb_compact(source->dbfile, new_filename);

@@ -2,6 +2,7 @@
 #ifndef COUCH_COMMON_H
 #define COUCH_COMMON_H
 #include <sys/types.h>
+#include <fcntl.h>
 #include <stdint.h>
 
 #include <libcouchstore/visibility.h>
@@ -30,9 +31,6 @@ extern "C" {
      */
     typedef int64_t cs_off_t;
 
-    /**global variable whose value is set based on user input in bench_config */
-    extern int64_t DATABUF_MAXLEN; 
-
     /** Document content metadata flags */
     typedef uint8_t couchstore_content_meta_flags;
     enum {
@@ -44,6 +42,16 @@ extern "C" {
                                              was not inserted as JSON. */
         COUCH_DOC_NON_JSON_MODE = 3 /**< Document was not checked (DB running in non-JSON mode) */
     };
+
+    typedef enum {
+#ifdef POSIX_FADV_NORMAL
+        /* Evict this range from FS caches if possible */
+        COUCHSTORE_FILE_ADVICE_EVICT = POSIX_FADV_DONTNEED
+#else
+        /* Assign these whatever values, we'll be ignoring them.. */
+        COUCHSTORE_FILE_ADVICE_EVICT
+#endif
+    } couchstore_file_advice_t;
 
     /** A generic data blob. Nothing is implied about ownership of the block pointed to. */
     typedef struct _sized_buf {
@@ -86,7 +94,9 @@ extern "C" {
         uint64_t doc_count;         /**< Total number of (non-deleted) documents */
         uint64_t deleted_count;     /**< Total number of deleted documents */
         uint64_t space_used;        /**< Disk space actively used by docs */
+        uint64_t file_size;         /**< Total disk space used by database */
         cs_off_t header_position;   /**< File offset of current header */
+        uint64_t purge_seq;         /**< Last Purge sequence number */
     } DbInfo;
 
 

@@ -25,7 +25,24 @@ extern "C" {
         /**
          * Open the database in read only mode
          */
-        COUCHSTORE_OPEN_FLAG_RDONLY = 2
+        COUCHSTORE_OPEN_FLAG_RDONLY = 2,
+        /**
+         * Require the database to use the legacy CRC.
+         * This forces the disk_version flag to be 11 and is only valid for new files
+         * and existing version 11 files.
+         * When excluded the correct CRC is automatically chosen for existing files.
+         * When excluded the latest file version is always used for new files.
+         */
+        COUCHSTORE_OPEN_WITH_LEGACY_CRC = 4,
+        /*
+         * Open the database file without using an IO buffer
+         *
+         * This prevents the FileOps that are used in from being
+         * wrapped by the buffered file operations. This will
+         * *usually* result in performance degradation and is
+         * primarily intended for testing purposes.
+         */
+        COUCHSTORE_OPEN_FLAG_UNBUFFERED = 8,
     };
 
 
@@ -56,7 +73,7 @@ extern "C" {
      * @param flags Additional flags for how the database should
      *              be opened. See couchstore_open_flags_* for the
      *              available flags.
-     * @param ops Pointer to a structure containing the file I/O operations
+     * @param ops Pointer to the implementation of FileOpsInterface
      *            you want the library to use.
      * @param db Pointer to where you want the handle to the database to be
      *           stored.
@@ -65,25 +82,52 @@ extern "C" {
     LIBCOUCHSTORE_API
     couchstore_error_t couchstore_open_db_ex(const char *filename,
                                              couchstore_open_flags flags,
-                                             const couch_file_ops *ops,
+                                             FileOpsInterface* ops,
                                              Db **db);
-    couchstore_error_t couchstore_set_sync(Db *db, int sync);
-    couchstore_error_t couchstore_disable_auto_compaction(Db *db, int cpt);
 
     /**
-     * Close an open database and free all allocated resources.
+     * Release all resources held by the database handle after the file
+     * has been closed.
+     *
+     * This should be called *after* couchstore_close_file(db).
      *
      * @param db Pointer to the database handle to free.
      * @return COUCHSTORE_SUCCESS upon success
      */
     LIBCOUCHSTORE_API
-    couchstore_error_t couchstore_close_db(Db *db);
+    couchstore_error_t couchstore_free_db(Db* db);
+
 
     /**
-     * Get the default couch_file_ops object
+     * Close the file handle associated with this database handle.
+     *
+     * This does not free the resources held by the database handle. These
+     * resources should be released by subsequently calling
+     * couchstore_free_db(db).
+     *
+     * @param db Pointer to the database handle to drop the file from.
+     * @return COUCHSTORE_SUCCESS upon success
      */
     LIBCOUCHSTORE_API
-    const couch_file_ops *couchstore_get_default_file_ops(void);
+    couchstore_error_t couchstore_close_file(Db* db);
+
+    /**
+     * Rewind a db handle to the next-oldest header still present in the file.
+     * If there is no next-oldest header, the db handle will be *closed*, and
+     * COUCHSTORE_DB_NO_LONGER_VALID will be returned.
+     *
+     * @param db The database handle to rewind
+     * @return COUCHSTORE_SUCCESS upon success, COUCHSTORE_DB_NO_LONGER_VALID if
+     * no next-oldest header was found.
+     */
+    LIBCOUCHSTORE_API
+    couchstore_error_t couchstore_rewind_db_header(Db *db);
+
+    /**
+     * Get the default FileOpsInterface object
+     */
+    LIBCOUCHSTORE_API
+    FileOpsInterface* couchstore_get_default_file_ops(void);
 
     /**
      * Get information about the database.
@@ -105,7 +149,6 @@ extern "C" {
      */
     LIBCOUCHSTORE_API
     const char* couchstore_get_db_filename(Db *db);
-
 
     /**
      * Get the position in the file of the mostly recently written
@@ -129,7 +172,15 @@ extern "C" {
          * default, and if this is not set the data field of the Doc will
          * be written to disk as-is, regardless of the content_meta flags.
          */
-        COMPRESS_DOC_BODIES = 1
+        COMPRESS_DOC_BODIES = 1,
+        /**
+         * Store the DocInfo's passed in db_seq as is.
+         *
+         * Couchstore will *not* assign it a new sequence number, but store the
+         * sequence number as given. The update_seq for the DB will be set to
+         * at least this sequence.
+         * */
+        COUCHSTORE_SEQUENCE_AS_IS = 2
     };
 
     /**
@@ -279,6 +330,22 @@ extern "C" {
      */
     LIBCOUCHSTORE_API
     void couchstore_free_document(Doc *doc);
+
+
+    /**
+     * Allocates a new DocInfo structure on the heap, plus optionally its id and rev_meta.
+     * If the id or rev_meta are given, their values will be copied into the allocated memory
+     * and the corresponding fields in the returned DocInfo will point there. Otherwise the
+     * DocInfo's id and/or rev_meta fields will be empty/null.
+     * @param id the document ID to copy into the DocInfo, or NULL to leave its ID NULL.
+     * @param rev_meta the revision metadata to copy into the DocInfo, or NULL to leave its
+     *          rev_meta NULL.
+     * @return the allocated DocInfo, or NULL on an allocation failure. Must be freed by
+     *          calling couchstore_free_docinfo.
+     */
+    LIBCOUCHSTORE_API
+    DocInfo* couchstore_alloc_docinfo(const sized_buf *id,
+                                      const sized_buf *rev_meta);
 
 
     /**
@@ -538,7 +605,10 @@ extern "C" {
     LIBCOUCHSTORE_API
     void couchstore_free_local_document(LocalDoc *lDoc);
 
-    /*
+
+    /*////////////////////  UTILITIES: */
+
+    /**
      * Compact a database. This creates a new DB file with the same data as the
      * source db, omitting data that is no longer needed.
      * Will use default couch_file_ops to create and write the target db.
@@ -559,10 +629,62 @@ extern "C" {
         /**
          * Do not copy the tombstones of deleted items into compacted file.
          */
-        COUCHSTORE_COMPACT_FLAG_DROP_DELETES = 1
+        COUCHSTORE_COMPACT_FLAG_DROP_DELETES = 1,
+
+        /**
+         * Upgrade the database whilst compacting.
+         * The only supported upgrade is from version 11 to 12 which
+         * changes the CRC function used.
+         */
+        COUCHSTORE_COMPACT_FLAG_UPGRADE_DB = 2,
+
+        /*
+         * Open the target database file without using an IO buffer
+         *
+         * This prevents the FileOps that are used in from being
+         * wrapped by the buffered file operations. This will
+         * *usually* result in performance degradation and is
+         * primarily intended for testing purposes.
+         */
+         COUCHSTORE_COMPACT_FLAG_UNBUFFERED = 4,
     };
 
-    /*
+    /**
+     * A compactor hook will be given each DocInfo, and can either keep or drop the item
+     * based on its contents.
+     *
+     * It can also return a couchstore error code, which will abort the compaction.
+     *
+     * If a compactor hook is set, COUCHSTORE_COMPACT_FLAG_DROP_DELETES will *not* drop deletes,
+     * but will bump the purge counter. The hook is responsible for dropping deletes.
+     *
+     * The couchstore_docinfo_hook is for editing the docinfo of the item if the rev_meta
+     * section in docinfo is not found to already contain extended metadata.
+     */
+    enum {
+        COUCHSTORE_COMPACT_KEEP_ITEM = 0,
+        COUCHSTORE_COMPACT_DROP_ITEM = 1
+    };
+
+    typedef int (*couchstore_compact_hook)(Db* target,
+                                           DocInfo *docinfo,
+                                           void *ctx);
+
+    typedef int (*couchstore_docinfo_hook)(DocInfo **docinfo,
+                                           const sized_buf *item);
+
+    /**
+     * Set purge sequence number. This allows the compactor hook to set the highest
+     * purged sequence number into the header once compaction is complete
+     *
+     * @param target any database whose's purge_seq needs to be set
+     * @param purge_seq the sequence number to set into the header's purge_seq.
+     * @return COUCHSTORE_SUCCESS on success
+     */
+    LIBCOUCHSTORE_API
+    couchstore_error_t couchstore_set_purge_seq(Db* target, uint64_t purge_seq);
+
+    /**
      * Compact a database. This creates a new DB file with the same data as the
      * source db, omitting data that is no longer needed.
      * Will use specified couch_file_ops to create and write the target db.
@@ -570,13 +692,20 @@ extern "C" {
      * @param source the source database
      * @param target_filename the filename of the new database to create.
      * @param flags flags that change compaction behavior
-     * @param ops Pointer to a structure containing the file I/O operations
+     * @param hook time_purge_hook callback
+     * @param dhook get_extmeta_hook callback
+     * @param hook_ctx compaction_ctx struct
+     * @param ops Pointer to the FileOpsInterface implementation
      *            you want the library to use.
      * @return COUCHSTORE_SUCCESS on success
      */
     LIBCOUCHSTORE_API
-    couchstore_error_t couchstore_compact_db_ex(Db* source, const char* target_filename,
-                                                uint64_t flags, const couch_file_ops *ops);
+    couchstore_error_t couchstore_compact_db_ex(Db* source, const char* target_filename, uint64_t flags,
+                                                couchstore_compact_hook hook,
+                                                couchstore_docinfo_hook dhook, void* hook_ctx,
+                                                FileOpsInterface* ops);
+
+
     /*////////////////////  MISC: */
 
     /**
@@ -598,7 +727,24 @@ extern "C" {
      * @param size The size of the buffer.
      */
      LIBCOUCHSTORE_API
-     void couchstore_last_os_error(char* buf, size_t size);
+     couchstore_error_t couchstore_last_os_error(const Db *db,
+                                                 char* buf,
+                                                 size_t size);
+
+     /**
+      * Counts the number of changes between two sequence numbers, inclusive.
+      *
+      * @param db The db to count changes in
+      * @param min_seq The minimum sequence to count
+      * @param max_seq The maximum sequence to count
+      * @param count Pointer to uint64_t to store count in
+      * @return COUCHSTORE_SUCCESS on success
+      */
+     LIBCOUCHSTORE_API
+     couchstore_error_t couchstore_changes_count(Db* db,
+                                                 uint64_t min_seq,
+                                                 uint64_t max_seq,
+                                                 uint64_t *count);
 
 #ifdef __cplusplus
 }
