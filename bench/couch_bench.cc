@@ -93,6 +93,7 @@ struct bench_info {
     size_t nwriters;
     size_t reader_ops;
     size_t writer_ops;
+    int disjoint_write;
 
     // benchmark details
     struct rndinfo keylen;
@@ -328,6 +329,47 @@ struct pop_thread_args {
 
 #define GET_FILE_NO(ndocs, nfiles, idx) \
     ((idx) / ( ((ndocs) + (nfiles-1)) / (nfiles)))
+
+static void _get_file_range(int t_idx, int num_threads, int num_files,
+                            int *begin, int *end)
+{
+    // return disjoint set of files for each thread
+
+    // example 1): num_thread = 4, num_files = 11
+    // => quotient = 2 , remainder = 3
+    // t_idx  begin  end  #files
+    // 0      0      2    3
+    // 1      3      5    3
+    // 2      6      8    3
+    // 3      9      10   2
+
+    // example 2): num_thread = 4, num_files = 10
+    // => quotient = 2 , remainder = 2
+    // t_idx  begin  end  #files
+    // 0      0      2    3
+    // 1      3      5    3
+    // 2      6      7    2
+    // 3      8      9    2
+
+    int quotient;
+    int remainder;
+
+    quotient = num_files / num_threads;
+    remainder = num_files - (quotient * num_threads);
+
+    if (remainder) {
+        if (t_idx < remainder) {
+            *begin = (quotient+1) * t_idx;
+            *end = (*begin) + quotient;
+        } else {
+            *begin = (quotient+1) * remainder + quotient * (t_idx - remainder);
+            *end = (*begin) + quotient - 1;
+        }
+    } else {
+        *begin = quotient * t_idx;
+        *end = (*begin) + quotient - 1;
+    }
+}
 
 void * pop_thread(void *voidargs)
 {
@@ -672,6 +714,8 @@ struct bench_thread_args {
     int id;
     Db **db;
     int mode; // 0:reader+writer, 1:writer, 2:reader
+    int frange_begin;
+    int frange_end;
     int *compaction_no;
     uint32_t rnd_seed;
     struct bench_info *binfo;
@@ -705,6 +749,9 @@ couchstore_error_t couchstore_close_db(Db *db)
     return COUCHSTORE_SUCCESS;
 }
 #endif
+
+void (*old_handler)(int);
+int got_signal = 0;
 
 #if defined(__FDB_BENCH) || defined(__COUCH_BENCH)
 
@@ -749,6 +796,11 @@ void * compactor(void *voidargs)
             } else {
                 break;
             }
+
+            if (got_signal) {
+                // user wants to break .. don't need to wait here
+                break;
+            }
         }
 
         // erase previous db file
@@ -765,8 +817,6 @@ void * compactor(void *voidargs)
 
 #endif
 
-void (*old_handler)(int);
-int got_signal = 0;
 void signal_handler_confirm(int sig_no)
 {
     char *r;
@@ -1014,6 +1064,17 @@ void * bench_thread(void *voidargs)
                     continue;
                 }
             }
+
+            if (binfo->disjoint_write) {
+                if (args->frange_begin > args->frange_end) {
+                    // disjoint write is on AND
+                    // # writers is greater than # files.
+                    // this is a surplus writer .. do nothing
+                    usleep(100000);
+                    continue;
+                }
+            }
+
             break;
 
         case 2: // reader & iterator
@@ -1114,6 +1175,13 @@ void * bench_thread(void *voidargs)
         if (write_mode) {
             // write (update)
 
+            uint64_t drange_begin, drange_end, dummy, drange_gap;
+            SET_DOC_RANGE(binfo->ndocs, binfo->nfiles, args->frange_begin,
+                          drange_begin, dummy);
+            SET_DOC_RANGE(binfo->ndocs, binfo->nfiles, args->frange_end,
+                          dummy, drange_end);
+            drange_gap = drange_end - drange_begin;
+
 #if defined(__FDB_BENCH) || defined(__WT_BENCH)
             // initialize
             memset(commit_mask, 0, sizeof(int) * binfo->nfiles);
@@ -1122,10 +1190,23 @@ void * bench_thread(void *voidargs)
 
                 BDR_RNG_NEXTPAIR;
                 r = get_random(&op_dist, rngz, rngz2);
-                if (r >= binfo->ndocs) r = r % binfo->ndocs;
+                if (binfo->disjoint_write) {
+                    if (r >= drange_gap) {
+                        r = r % drange_gap;
+                    }
+                    r += drange_begin;
+                } else {
+                    if (r >= binfo->ndocs) r = r % binfo->ndocs;
+                }
+
                 curfile_no = GET_FILE_NO(binfo->ndocs, binfo->nfiles, r);
                 _bench_result_doc_hit(result, r);
                 _bench_result_file_hit(result, curfile_no);
+
+                if (binfo->disjoint_write) {
+                    assert(args->frange_begin <= curfile_no &&
+                           curfile_no <= args->frange_end);
+                }
 
                 _create_doc(binfo, r, &rq_doc, &rq_info);
                 err = couchstore_save_document(db[curfile_no], rq_doc,
@@ -1151,10 +1232,23 @@ void * bench_thread(void *voidargs)
             for (j=0;j<batchsize;++j){
                 BDR_RNG_NEXTPAIR;
                 r = get_random(&op_dist, rngz, rngz2);
-                if (r >= binfo->ndocs) r = r % binfo->ndocs;
+                if (binfo->disjoint_write) {
+                    if (r >= drange_gap) {
+                        r = r % drange_gap;
+                    }
+                    r += drange_begin;
+                } else {
+                    if (r >= binfo->ndocs) r = r % binfo->ndocs;
+                }
+
                 curfile_no = GET_FILE_NO(binfo->ndocs, binfo->nfiles, r);
                 _bench_result_doc_hit(result, r);
                 _bench_result_file_hit(result, curfile_no);
+
+                if (binfo->disjoint_write) {
+                    assert(args->frange_begin <= curfile_no &&
+                           curfile_no <= args->frange_end);
+                }
 
                 c = file_doccount[curfile_no]++;
                 _create_doc(binfo, r,
@@ -1222,7 +1316,9 @@ void * bench_thread(void *voidargs)
 
                 free(rq_id.buf);
             }
-            op_r_cum += batchsize;
+            if (err == COUCHSTORE_SUCCESS) {
+                op_r_cum += batchsize;
+            }
 
         } else {
             // iterate
@@ -1753,6 +1849,11 @@ void do_bench(struct bench_info *binfo)
         b_args[i].terminate_signal = 0;
         b_args[i].op_signal = 0;
         b_args[i].binfo = binfo;
+        if (b_args[i].mode == 1) {
+            // writer: 0 ~ nwriters
+            _get_file_range(i, binfo->nwriters, binfo->nfiles,
+                            &b_args[i].frange_begin, &b_args[i].frange_end);
+        }
 
         // open db instances
 #if defined(__FDB_BENCH) || defined(__COUCH_BENCH) || defined(__WT_BENCH)
@@ -2305,6 +2406,10 @@ void _print_benchinfo(struct bench_info *binfo)
     } else {
         lprintf("\n");
     }
+    if (binfo->disjoint_write) {
+        lprintf("enabled disjoint write among %d writers over %d files\n",
+                (int)binfo->nwriters, (int)binfo->nfiles);
+    }
 
     lprintf("# auto-compaction threads: %d\n", binfo->auto_compaction_threads);
 
@@ -2687,6 +2792,13 @@ struct bench_info get_benchinfo(char* bench_config_filename)
     binfo.nwriters = iniparser_getint(cfg, (char*)"threads:writers", 0);
     binfo.reader_ops = iniparser_getint(cfg, (char*)"threads:reader_ops", 0);
     binfo.writer_ops = iniparser_getint(cfg, (char*)"threads:writer_ops", 0);
+    str = iniparser_getstring(cfg, (char*)"threads:disjoint_write", (char*)"true");
+    if (str[0] == 't' || str[0] == 'T' || str[0] == 'e' || str[0] == 'E') {
+        // enabled
+        binfo.disjoint_write = 1;
+    } else {
+        binfo.disjoint_write = 0;
+    }
 
     // create keygen structure
     _set_keygen(&binfo);
