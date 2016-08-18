@@ -2946,9 +2946,6 @@ struct bench_info get_benchinfo(char* bench_config_filename)
     binfo.block_reuse_thres =
         iniparser_getint(cfg, (char*)"compaction:block_reuse", 70);
     if (binfo.block_reuse_thres) {
-        if (binfo.block_reuse_thres < 0) {
-            binfo.block_reuse_thres = 0;
-        }
         if (binfo.block_reuse_thres > 100) {
             binfo.block_reuse_thres = 100;
         }
