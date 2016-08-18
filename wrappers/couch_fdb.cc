@@ -196,9 +196,6 @@ couchstore_error_t couchstore_close_db(Db *db)
 LIBCOUCHSTORE_API
 couchstore_error_t couchstore_db_info(Db *db, DbInfo* info)
 {
-    char **file;
-    size_t file_offset;
-    uint64_t filename_address;
     fdb_file_info fdb_info;
 
     fdb_get_file_info(db->dbfile, &fdb_info);

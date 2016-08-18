@@ -959,7 +959,7 @@ void * bench_thread(void *voidargs)
     struct latency_stat *l_stat;
     struct stopwatch sw, sw_monitor, sw_latency;
     struct timeval gap;
-    couchstore_error_t err;
+    couchstore_error_t err = COUCHSTORE_SUCCESS;
 
 #if defined(__FDB_BENCH) || defined(__WT_BENCH)
     DocInfo *rq_info = NULL;
@@ -1181,6 +1181,7 @@ void * bench_thread(void *voidargs)
             SET_DOC_RANGE(binfo->ndocs, binfo->nfiles, args->frange_end,
                           dummy, drange_end);
             drange_gap = drange_end - drange_begin;
+            (void)dummy;
 
 #if defined(__FDB_BENCH) || defined(__WT_BENCH)
             // initialize
