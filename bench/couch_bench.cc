@@ -1044,6 +1044,17 @@ void * bench_thread(void *voidargs)
 
         case 1: // writer
             write_mode = 1;
+
+            if (binfo->disjoint_write) {
+                if (args->frange_begin > args->frange_end) {
+                    // disjoint write is on AND
+                    // # writers is greater than # files.
+                    // this is a surplus writer .. do nothing
+                    usleep(100000);
+                    continue;
+                }
+            }
+
             if (binfo->writer_ops > 0 && binfo->write_prob > 100) {
                 // ops mode
                 if (op_w_cum < elapsed_sec * binfo->writer_ops) break;
@@ -1061,16 +1072,6 @@ void * bench_thread(void *voidargs)
                 if (op_w * 100 > (op_w + op_r) * binfo->write_prob &&
                     binfo->write_prob <= 100) {
                     usleep(1);
-                    continue;
-                }
-            }
-
-            if (binfo->disjoint_write) {
-                if (args->frange_begin > args->frange_end) {
-                    // disjoint write is on AND
-                    // # writers is greater than # files.
-                    // this is a surplus writer .. do nothing
-                    usleep(100000);
                     continue;
                 }
             }
