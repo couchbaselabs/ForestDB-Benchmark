@@ -2794,7 +2794,7 @@ struct bench_info get_benchinfo(char* bench_config_filename)
     binfo.nwriters = iniparser_getint(cfg, (char*)"threads:writers", 0);
     binfo.reader_ops = iniparser_getint(cfg, (char*)"threads:reader_ops", 0);
     binfo.writer_ops = iniparser_getint(cfg, (char*)"threads:writer_ops", 0);
-    str = iniparser_getstring(cfg, (char*)"threads:disjoint_write", (char*)"true");
+    str = iniparser_getstring(cfg, (char*)"threads:disjoint_write", (char*)"false");
     if (str[0] == 't' || str[0] == 'T' || str[0] == 'e' || str[0] == 'E') {
         // enabled
         binfo.disjoint_write = 1;
