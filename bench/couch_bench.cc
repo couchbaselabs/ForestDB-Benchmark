@@ -251,6 +251,10 @@ void _create_doc(struct bench_info *binfo,
     }
     memcpy(doc->id.buf, keybuf, doc->id.size);
 
+    // as WiredTiger uses C-style string,
+    // add NULL character at the end.
+    doc->id.buf[doc->id.size] = 0;
+
     BDR_RNG_NEXTPAIR;
     r = get_random(&binfo->bodylen, rngz, rngz2);
     if (r < 8) r = 8;
@@ -1303,8 +1307,12 @@ void * bench_thread(void *voidargs)
                 } else {
                     rq_id.size = keygen_seed2key(&binfo->keygen, r, keybuf);
                 }
-                rq_id.buf = (char *)malloc(rq_id.size);
+
+                // as WiredTiger uses C-style string,
+                // add NULL character at the end.
+                rq_id.buf = (char *)malloc(rq_id.size + 1);
                 memcpy(rq_id.buf, keybuf, rq_id.size);
+                rq_id.buf[rq_id.size] = 0;
 
                 err = couchstore_open_document(db[curfile_no], rq_id.buf,
                                                rq_id.size, &rq_doc, binfo->compression);
@@ -1334,8 +1342,12 @@ void * bench_thread(void *voidargs)
             } else {
                 rq_id.size = keygen_seed2key(&binfo->keygen, r, keybuf);
             }
-            rq_id.buf = (char *)malloc(rq_id.size);
+
+            // as WiredTiger uses C-style string,
+            // add NULL character at the end.
+            rq_id.buf = (char *)malloc(rq_id.size + 1);
             memcpy(rq_id.buf, keybuf, rq_id.size);
+            rq_id.buf[rq_id.size] = 0;
 
             i_args.batchsize = batchsize;
             i_args.counter = 0;

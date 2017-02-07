@@ -160,8 +160,10 @@ couchstore_error_t couchstore_open_db_ex(const char *filename,
                 ,split_pct, int_page_size, leaf_page_size);
     }
     if (compression) {
+        // note: compression works for C-style string format (S) only.
         strcat(table_config, ",block_compressor=snappy");
     }
+    strcat(table_config, ",key_format=S,value_format=S");
 
     ret = conn->open_session(conn, NULL, NULL, &ppdb->session);
     if (ret != 0) {
@@ -239,7 +241,6 @@ couchstore_error_t couchstore_save_documents(Db *db, Doc* const docs[], DocInfo 
     unsigned i;
     uint16_t metalen;
     uint8_t *buf;
-    WT_ITEM item;
 
     if (db->sync) {
         ret = db->session->begin_transaction(db->session, "sync");
@@ -249,17 +250,13 @@ couchstore_error_t couchstore_save_documents(Db *db, Doc* const docs[], DocInfo 
     buf = (uint8_t*)malloc(sizeof(metalen) + METABUF_MAXLEN + DATABUF_MAXLEN);
 
     for (i=0;i<numdocs;++i){
-        item.data = docs[i]->id.buf;
-        item.size = docs[i]->id.size;
-        db->cursor->set_key(db->cursor, &item);
+        db->cursor->set_key(db->cursor, docs[i]->id.buf);
 
         metalen = _docinfo_to_buf(infos[i], buf + sizeof(metalen));
         memcpy(buf, &metalen, sizeof(metalen));
         memcpy(buf + sizeof(metalen) + metalen, docs[i]->data.buf, docs[i]->data.size);
 
-        item.data = buf;
-        item.size = sizeof(metalen) + metalen + docs[i]->data.size;
-        db->cursor->set_value(db->cursor, &item);
+        db->cursor->set_value(db->cursor, buf);
 
         ret = db->cursor->insert(db->cursor);
         if (ret != 0) {
@@ -321,22 +318,20 @@ couchstore_error_t couchstore_open_document(Db *db,
                                             couchstore_open_options options)
 {
     int ret;
-    WT_ITEM item;
 
-    item.data = id;
-    item.size = idlen;
-    db->cursor->set_key(db->cursor, &item);
+    db->cursor->set_key(db->cursor, id);
     ret = db->cursor->search(db->cursor);
     assert(ret == 0);
 
-    db->cursor->get_value(db->cursor, &item);
+    const char *value;
+    db->cursor->get_value(db->cursor, &value);
 
     *pDoc = (Doc *)malloc(sizeof(Doc));
     (*pDoc)->id.buf = (char*)id;
     (*pDoc)->id.size = idlen;
-    (*pDoc)->data.buf = (char*)malloc(item.size);
-    memcpy((*pDoc)->data.buf, item.data, item.size);
-    (*pDoc)->data.size = item.size;
+    (*pDoc)->data.size = strlen(value);
+    (*pDoc)->data.buf = (char*)malloc((*pDoc)->data.size+1);
+    strcpy((*pDoc)->data.buf, value);
 
     return COUCHSTORE_SUCCESS;
 }
@@ -352,22 +347,22 @@ couchstore_error_t couchstore_walk_id_tree(Db *db,
     int c_ret = 0;
     DocInfo doc_info;
     Doc doc;
-    WT_ITEM item;
 
-    item.data = startDocID->buf;
-    item.size = startDocID->size;
-    db->cursor->set_key(db->cursor, &item);
+    db->cursor->set_key(db->cursor, startDocID->buf);
     ret = db->cursor->search(db->cursor);
     assert(ret == 0);
 
+    const char *key, *value;
     do {
-        db->cursor->get_key(db->cursor, &item);
-        doc_info.id.buf = (char *)malloc(item.size);
-        memcpy(doc_info.id.buf, item.data, item.size);
+        db->cursor->get_key(db->cursor, &key);
+        doc_info.id.size = strlen(key);
+        doc_info.id.buf = (char *)malloc(doc_info.id.size + 1);
+        strcpy(doc_info.id.buf, key);
 
-        db->cursor->get_value(db->cursor, &item);
-        doc.data.buf = (char *)malloc(item.size);
-        memcpy(doc.data.buf, item.data, item.size);
+        db->cursor->get_value(db->cursor, &value);
+        doc.data.size = strlen(value);
+        doc.data.buf = (char *)malloc(doc.data.size + 1);
+        strcpy(doc.data.buf, value);
 
         c_ret = callback(db, 0, &doc_info, 0, NULL, ctx);
 
