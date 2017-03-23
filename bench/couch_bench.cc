@@ -12,6 +12,7 @@
 #endif
 #include <signal.h>
 #include <dirent.h>
+#include <unordered_set>
 
 #include "libcouchstore/couch_db.h"
 #include "libcouchstore/file_ops.h"
@@ -1188,14 +1189,19 @@ void * bench_thread(void *voidargs)
             drange_gap = drange_end - drange_begin;
             (void)dummy;
 
+            std::unordered_set<uint64_t> dup_check;
+
 #if defined(__FDB_BENCH) || defined(__WT_BENCH)
             // initialize
             memset(commit_mask, 0, sizeof(int) * binfo->nfiles);
 
             for (j=0;j<batchsize;++j){
+                do {
+                    BDR_RNG_NEXTPAIR;
+                    r = get_random(&op_dist, rngz, rngz2);
+                } while(dup_check.find(r) != dup_check.end());
+                dup_check.insert(r);
 
-                BDR_RNG_NEXTPAIR;
-                r = get_random(&op_dist, rngz, rngz2);
                 if (binfo->disjoint_write) {
                     if (r >= drange_gap) {
                         r = r % drange_gap;
@@ -1236,8 +1242,12 @@ void * bench_thread(void *voidargs)
             }
 
             for (j=0;j<batchsize;++j){
-                BDR_RNG_NEXTPAIR;
-                r = get_random(&op_dist, rngz, rngz2);
+                do {
+                    BDR_RNG_NEXTPAIR;
+                    r = get_random(&op_dist, rngz, rngz2);
+                } while(dup_check.find(r) != dup_check.end());
+                dup_check.insert(r);
+
                 if (binfo->disjoint_write) {
                     if (r >= drange_gap) {
                         r = r % drange_gap;
@@ -1293,10 +1303,15 @@ void * bench_thread(void *voidargs)
 
         } else if (args->mode == 2) {
             // read
-            for (j=0;j<batchsize;++j){
+            std::unordered_set<uint64_t> dup_check;
 
-                BDR_RNG_NEXTPAIR;
-                r = get_random(&op_dist, rngz, rngz2);
+            for (j=0;j<batchsize;++j){
+                do {
+                    BDR_RNG_NEXTPAIR;
+                    r = get_random(&op_dist, rngz, rngz2);
+                } while(dup_check.find(r) != dup_check.end());
+                dup_check.insert(r);
+
                 if (r >= binfo->ndocs) r = r % binfo->ndocs;
                 curfile_no = GET_FILE_NO(binfo->ndocs, binfo->nfiles, r);
                 _bench_result_doc_hit(result, r);
