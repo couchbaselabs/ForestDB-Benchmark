@@ -300,10 +300,15 @@ void _create_doc(struct bench_info *binfo,
         }
     }
     memcpy(doc->data.buf + doc->data.size - 5, (void*)"<end>", 5);
-    snprintf(doc->data.buf, doc->data.size,
-             "idx# %d, body of %.*s, key len %d, body len %d",
-             (int)idx, (int)doc->id.size, doc->id.buf,
-             (int)doc->id.size, (int)doc->data.size);
+    int hdr_str_len =
+            snprintf(doc->data.buf, doc->data.size,
+                     "idx# %d, body of %.*s, key len %d, body len %d",
+                     (int)idx, (int)doc->id.size, doc->id.buf,
+                     (int)doc->id.size, (int)doc->data.size);
+    // Need to eliminate NULL character at the end of prefix,
+    // as WiredTiger treats it as C-style string.
+    memset((uint8_t*)doc->data.buf + hdr_str_len, 'x', 1);
+    memset((uint8_t*)doc->data.buf + doc->data.size, 0x0, 1);
 
     if (!info)
         info = (DocInfo*)malloc(sizeof(DocInfo));

@@ -252,10 +252,14 @@ couchstore_error_t couchstore_save_documents(Db *db, Doc* const docs[], DocInfo 
     for (i=0;i<numdocs;++i){
         db->cursor->set_key(db->cursor, docs[i]->id.buf);
 
+        // Note: as WiredTiger uses C-style string, NULL character
+        // should not be used in value. So we don't append metadata
+        // here since it contains a number of zeros.
+        /*
         metalen = _docinfo_to_buf(infos[i], buf + sizeof(metalen));
         memcpy(buf, &metalen, sizeof(metalen));
-        memcpy(buf + sizeof(metalen) + metalen, docs[i]->data.buf, docs[i]->data.size);
-
+        */
+        memcpy(buf, docs[i]->data.buf, docs[i]->data.size);
         db->cursor->set_value(db->cursor, buf);
 
         ret = db->cursor->insert(db->cursor);
