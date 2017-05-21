@@ -2150,6 +2150,16 @@ void do_bench(struct bench_info *binfo)
                     int bench_nrs = 0;
 
                     for (j=0; j<bench_threads; ++j) {
+                        if (binfo->disjoint_write) {
+                            int fno_begin, fno_end;
+                            _get_file_range(j, binfo->nwriters, binfo->nfiles,
+                                            &fno_begin, &fno_end);
+                            if (curfile_no < fno_begin ||
+                                fno_end < curfile_no) {
+                                continue;
+                            }
+                        }
+
                         if (b_args[j].mode != 2) {
                             // close all non-readers
                             bench_nrs++;
