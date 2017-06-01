@@ -941,6 +941,7 @@ int iterate_callback(Db *db,
 }
 
 #define MAX_BATCHSIZE (65536)
+#define DUP_CHECK_MAX_TICKS (8)
 
 void * bench_thread(void *voidargs)
 {
@@ -1195,16 +1196,19 @@ void * bench_thread(void *voidargs)
             (void)dummy;
 
             std::unordered_set<uint64_t> dup_check;
+            size_t dup_check_ticks = 0;
 
 #if defined(__FDB_BENCH) || defined(__WT_BENCH)
             // initialize
             memset(commit_mask, 0, sizeof(int) * binfo->nfiles);
 
             for (j=0;j<batchsize;++j){
+                dup_check_ticks = 0;
                 do {
                     BDR_RNG_NEXTPAIR;
                     r = get_random(&op_dist, rngz, rngz2);
-                } while(dup_check.find(r) != dup_check.end());
+                } while(dup_check.find(r) != dup_check.end() &&
+                        dup_check_ticks++ < DUP_CHECK_MAX_TICKS);
                 dup_check.insert(r);
 
                 if (binfo->disjoint_write) {
@@ -1247,10 +1251,12 @@ void * bench_thread(void *voidargs)
             }
 
             for (j=0;j<batchsize;++j){
+                dup_check_ticks = 0;
                 do {
                     BDR_RNG_NEXTPAIR;
                     r = get_random(&op_dist, rngz, rngz2);
-                } while(dup_check.find(r) != dup_check.end());
+                } while(dup_check.find(r) != dup_check.end() &&
+                        dup_check_ticks++ < DUP_CHECK_MAX_TICKS);
                 dup_check.insert(r);
 
                 if (binfo->disjoint_write) {
@@ -1309,12 +1315,15 @@ void * bench_thread(void *voidargs)
         } else if (args->mode == 2) {
             // read
             std::unordered_set<uint64_t> dup_check;
+            size_t dup_check_ticks = 0;
 
             for (j=0;j<batchsize;++j){
+                dup_check_ticks = 0;
                 do {
                     BDR_RNG_NEXTPAIR;
                     r = get_random(&op_dist, rngz, rngz2);
-                } while(dup_check.find(r) != dup_check.end());
+                } while(dup_check.find(r) != dup_check.end() &&
+                        dup_check_ticks++ < DUP_CHECK_MAX_TICKS);
                 dup_check.insert(r);
 
                 if (r >= binfo->ndocs) r = r % binfo->ndocs;
